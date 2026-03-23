@@ -1,0 +1,16 @@
+# Logs
+/tmp/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# State files are tracked but may contain local paths
+# state/

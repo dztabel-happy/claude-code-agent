@@ -1,0 +1,41 @@
+#!/bin/bash
+# Return a managed Claude session to local control.
+# Usage: ./reclaim.sh <selector>
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/session_store.sh"
+
+SELECTOR="${1:?Usage: $0 <session-key|tmux-session|project-label|cwd>}"
+set +e
+SESSION_KEY="$(session_store_resolve_selector_checked "$SELECTOR")"
+RESOLVE_RC=$?
+set -e
+if [ "$RESOLVE_RC" -ne 0 ]; then
+    exit "$RESOLVE_RC"
+fi
+
+session_store_refresh_live_state "$SESSION_KEY" >/dev/null 2>&1 || true
+SESSION_JSON="$(session_store_read "$SESSION_KEY")"
+PROJECT_LABEL="$(printf '%s' "$SESSION_JSON" | jq -r '.project_label // .session_key')"
+TMUX_SESSION="$(printf '%s' "$SESSION_JSON" | jq -r '.tmux_session // ""')"
+
+session_store_merge "$SESSION_KEY" "$(jq -n \
+    --arg controller "local" \
+    --arg notify_mode "off" \
+    --arg last_event "manual_reclaim" \
+    --arg last_activity_at "$(session_store_now_iso)" \
+    '{
+        controller: $controller,
+        notify_mode: $notify_mode,
+        last_event: $last_event,
+        last_activity_at: $last_activity_at
+    }')" >/dev/null
+
+echo "✅ Session returned to local control"
+echo "   project:      $PROJECT_LABEL"
+echo "   session_key:  $SESSION_KEY"
+echo "   tmux_session: ${TMUX_SESSION:-"-"}"
+echo "   notify_mode:  off"
