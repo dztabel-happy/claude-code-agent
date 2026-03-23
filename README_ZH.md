@@ -18,6 +18,74 @@
 
 它不是 Claude Code 的替代品，也不会默认去接管用户手工裸跑的 `claude` 会话。
 
+## 你平时到底怎么用它
+
+日常使用时，你**不需要**先手工跑这些 wrapper 脚本。
+
+你的正常入口应该是**直接和 OpenClaw 对话**，例如：
+
+- “用 `claude-code-agent` 分析 `/path/to/project`。”
+- “用 `claude-code-agent` 修复 `/path/to/project` 里的这个 bug，跑完测试再汇报。”
+- “用 `claude-code-agent` 审查 `/path/to/project` 当前改动。”
+- “用 `claude-code-agent` 对 `/path/to/project` 做一次只读审计。”
+
+然后 OpenClaw 应该自己选择这个 skill，启动或复用一个托管的 Claude Code 会话，并通过 hooks 唤醒的方式继续推进任务。
+
+这个仓库里的 shell 脚本主要用于：
+
+- skill 内部控制面
+- 人工排障和恢复
+- 你想亲自查看、介入或临时接管某个 Claude 会话时的直接兜底入口
+
+## OpenClaw 的睡眠 / 唤醒模型
+
+是的：在这个设计里，OpenClaw 本来就应该在步骤之间“休眠”，等 Claude Code 通过 hooks 再把它唤醒。
+
+托管流程通常是：
+
+1. OpenClaw 启动或复用一个托管的 Claude Code 会话。
+2. Claude Code 在那个会话里继续工作。
+3. `Stop`、`Notification`、`PermissionRequest` 之类的 hook 事件唤醒 OpenClaw。
+4. OpenClaw 再回到同一个托管会话继续推进，而不是一直盯着终端忙等。
+
+所以它的预期运行方式是“事件驱动”，不是“OpenClaw 永远挂在终端前面盯着 Claude”。
+
+## 人工介入、正式接管、再交还
+
+你可以随时介入，但这里其实有两个不同层级。
+
+### 1. 直接看现场，或临时和 Claude 对话
+
+先 attach 到 tmux：
+
+```bash
+tmux attach -t <session-name>
+```
+
+这样你就能直接看到正在运行的 Claude Code 会话，也可以临时手动回复。
+
+但这**不等于**正式把所有权从 OpenClaw 手里切走。它只是一次现场介入，不是路由关系变更。
+
+### 2. 正式把控制权从 OpenClaw 切回本地
+
+如果你希望这个会话不再由 OpenClaw 托管，而是明确切回本地控制，请执行：
+
+```bash
+bash runtime/reclaim.sh <selector>
+```
+
+之后如果你又想把同一个会话正式交还给 OpenClaw：
+
+```bash
+bash runtime/takeover.sh <selector>
+```
+
+实用记忆法就是：
+
+- `tmux attach` = 查看现场 / 临时人工介入
+- `runtime/reclaim.sh` = 正式把控制权切回本地
+- `runtime/takeover.sh` = 正式把会话交还给 OpenClaw
+
 ## 设计目标
 
 - 托管会话不要求用户先改全局 `~/.claude/settings.json`
@@ -90,16 +158,34 @@
 
 ## 快速开始
 
+理解这个项目最快的方式是：
+
+1. 把 skill 安装到 OpenClaw 能发现的位置。
+2. 直接让 OpenClaw 使用 `claude-code-agent` 执行任务。
+3. 让 OpenClaw 在 Claude hook 唤醒之间休眠等待。
+4. 只有在你需要人工查看或改控制权时，才使用 `tmux attach`、`runtime/reclaim.sh`、`runtime/takeover.sh`。
+
 详细安装见 [INSTALL.md](INSTALL.md)。
 
-### 1. 启动交互式托管会话
+### OpenClaw 驱动的日常用法
+
+你平时对 OpenClaw 说的话，通常类似：
+
+```text
+用 claude-code-agent 分析 /path/to/project。
+用 claude-code-agent 修复 /path/to/project 里的 bug，跑完测试再汇报。
+用 claude-code-agent 审查 /path/to/project 当前改动。
+用 claude-code-agent 对 /path/to/project 做一次只读审计。
+```
+
+### 手工兜底：启动交互式托管会话
 
 ```bash
 bash hooks/start_claude.sh claude-demo /path/to/project --permission-mode acceptEdits
 tmux attach -t claude-demo
 ```
 
-### 2. 本地先跑，之后 handoff
+### 手工兜底：本地先跑，之后 handoff
 
 ```bash
 bash runtime/start_local_claude.sh /path/to/project --permission-mode acceptEdits
@@ -107,13 +193,13 @@ bash runtime/takeover.sh my-project
 bash runtime/reclaim.sh my-project
 ```
 
-### 3. 一次性执行
+### 手工兜底：一次性托管执行
 
 ```bash
 bash hooks/run_claude.sh /path/to/project -p --model sonnet "Analyze the repository and summarize the architecture."
 ```
 
-### 4. 显式启用 Agent Teams
+### 显式启用 Agent Teams
 
 ```bash
 bash hooks/start_claude.sh claude-team /path/to/project --permission-mode acceptEdits --agent-teams
