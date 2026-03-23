@@ -32,6 +32,8 @@ That means OpenClaw should:
 
 Claude Code is the execution expert. OpenClaw is the orchestrator.
 
+When a task gets harder, OpenClaw should prefer the smallest useful escalation first: upgrade reasoning before session shape, tools before brute force, and parallelism only when the task really benefits from it.
+
 ## How You Actually Use It
 
 For normal day-to-day use, you do **not** manually run the wrapper scripts first.
