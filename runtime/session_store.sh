@@ -131,6 +131,7 @@ session_store_write_managed_settings() {
     json=$(jq -n \
         --arg stop_cmd "bash \"$skill_dir/hooks/on_stop.sh\"" \
         --arg notify_cmd "bash \"$skill_dir/hooks/on_notification.sh\"" \
+        --arg permission_cmd "bash \"$skill_dir/hooks/on_permission_request.sh\"" \
         --arg teammate_cmd "bash \"$skill_dir/hooks/on_teammate_idle.sh\"" \
         --arg task_cmd "bash \"$skill_dir/hooks/on_task_completed.sh\"" \
         '{
@@ -156,6 +157,18 @@ session_store_write_managed_settings() {
                             {
                                 type: "command",
                                 command: $notify_cmd,
+                                timeout: 15
+                            }
+                        ]
+                    }
+                ],
+                PermissionRequest: [
+                    {
+                        matcher: "Bash",
+                        hooks: [
+                            {
+                                type: "command",
+                                command: $permission_cmd,
                                 timeout: 15
                             }
                         ]

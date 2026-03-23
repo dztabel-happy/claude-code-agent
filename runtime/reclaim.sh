@@ -25,11 +25,13 @@ TMUX_SESSION="$(printf '%s' "$SESSION_JSON" | jq -r '.tmux_session // ""')"
 session_store_merge "$SESSION_KEY" "$(jq -n \
     --arg controller "local" \
     --arg notify_mode "off" \
+    --arg permission_policy "off" \
     --arg last_event "manual_reclaim" \
     --arg last_activity_at "$(session_store_now_iso)" \
     '{
         controller: $controller,
         notify_mode: $notify_mode,
+        permission_policy: $permission_policy,
         last_event: $last_event,
         last_activity_at: $last_activity_at
     }')" >/dev/null
@@ -39,3 +41,4 @@ echo "   project:      $PROJECT_LABEL"
 echo "   session_key:  $SESSION_KEY"
 echo "   tmux_session: ${TMUX_SESSION:-"-"}"
 echo "   notify_mode:  off"
+echo "   perm_policy:  off"

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Hand a managed Claude session over to OpenClaw.
-# Usage: ./takeover.sh [--notify-mode MODE] [--chat-id ID] [--channel CHANNEL] [--agent NAME] [--no-wake] <selector>
+# Usage: ./takeover.sh [--notify-mode MODE] [--permission-policy POLICY] [--chat-id ID] [--channel CHANNEL] [--agent NAME] [--no-wake] <selector>
 
 set -euo pipefail
 
@@ -12,15 +12,22 @@ NOTIFY_MODE="attention"
 CHAT_ID=""
 CHANNEL=""
 AGENT_NAME=""
+PERMISSION_POLICY=""
 CHAT_ID_SET=0
 CHANNEL_SET=0
 AGENT_NAME_SET=0
+PERMISSION_POLICY_SET=0
 WAKE_OPENCLAW=1
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --notify-mode)
             NOTIFY_MODE="${2:?--notify-mode requires a value}"
+            shift 2
+            ;;
+        --permission-policy)
+            PERMISSION_POLICY="${2:?--permission-policy requires a value}"
+            PERMISSION_POLICY_SET=1
             shift 2
             ;;
         --chat-id)
@@ -43,7 +50,7 @@ while [ "$#" -gt 0 ]; do
             shift
             ;;
         --help|-h)
-            echo "Usage: $0 [--notify-mode MODE] [--chat-id ID] [--channel CHANNEL] [--agent NAME] [--no-wake] <selector>"
+            echo "Usage: $0 [--notify-mode MODE] [--permission-policy POLICY] [--chat-id ID] [--channel CHANNEL] [--agent NAME] [--no-wake] <selector>"
             exit 0
             ;;
         *)
@@ -59,6 +66,16 @@ case "$NOTIFY_MODE" in
         exit 1
         ;;
 esac
+
+if [ "$PERMISSION_POLICY_SET" -eq 1 ]; then
+    case "$PERMISSION_POLICY" in
+        off|deny-dangerous|safe) ;;
+        *)
+            echo "❌ Invalid permission policy: $PERMISSION_POLICY"
+            exit 1
+            ;;
+    esac
+fi
 
 SELECTOR="${1:?Usage: $0 [options] <selector>}"
 set +e
@@ -78,9 +95,21 @@ CWD="$(printf '%s' "$SESSION_JSON" | jq -r '.cwd // ""')"
 LAST_SUMMARY="$(printf '%s' "$SESSION_JSON" | jq -r '.last_summary // ""')"
 LAST_EVENT="$(printf '%s' "$SESSION_JSON" | jq -r '.last_event // ""')"
 OPENCLAW_SESSION_ID="$(printf '%s' "$SESSION_JSON" | jq -r '.openclaw_session_id // ""')"
+CURRENT_PERMISSION_POLICY="$(printf '%s' "$SESSION_JSON" | jq -r '.permission_policy // ""')"
 
 if [ -z "$OPENCLAW_SESSION_ID" ] || [ "$OPENCLAW_SESSION_ID" = "null" ]; then
     OPENCLAW_SESSION_ID="$(session_store_openclaw_session_id "$SESSION_KEY")"
+fi
+
+if [ "$PERMISSION_POLICY_SET" -ne 1 ]; then
+    case "$CURRENT_PERMISSION_POLICY" in
+        safe|deny-dangerous)
+            PERMISSION_POLICY="$CURRENT_PERMISSION_POLICY"
+            ;;
+        *)
+            PERMISSION_POLICY="safe"
+            ;;
+    esac
 fi
 
 if [ "$STATUS" != "running" ]; then
@@ -116,6 +145,7 @@ session_store_merge "$SESSION_KEY" "$(jq -n \
     --arg channel "$CHANNEL" \
     --arg agent_name "$AGENT_NAME" \
     --arg openclaw_session_id "$OPENCLAW_SESSION_ID" \
+    --arg permission_policy "$PERMISSION_POLICY" \
     --arg last_event "manual_takeover" \
     --arg last_activity_at "$(session_store_now_iso)" \
     '{
@@ -125,6 +155,7 @@ session_store_merge "$SESSION_KEY" "$(jq -n \
         channel: $channel,
         agent_name: $agent_name,
         openclaw_session_id: $openclaw_session_id,
+        permission_policy: $permission_policy,
         last_event: $last_event,
         last_activity_at: $last_activity_at
     }')" >/dev/null
@@ -135,6 +166,7 @@ echo "   session_key:  $SESSION_KEY"
 echo "   tmux_session: ${TMUX_SESSION:-"-"}"
 echo "   oc_session:   $OPENCLAW_SESSION_ID"
 echo "   notify_mode:  $NOTIFY_MODE"
+echo "   perm_policy:  $PERMISSION_POLICY"
 
 if [ "$WAKE_OPENCLAW" -eq 1 ] && command -v openclaw >/dev/null 2>&1; then
     WAKE_MSG="[Claude Code Handoff] 接管已有会话并继续处理。

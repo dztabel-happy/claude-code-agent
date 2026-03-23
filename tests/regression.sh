@@ -409,6 +409,8 @@ settings_path = pathlib.Path(os.environ["SETTINGS_PATH_FOR_CAPTURE"])
 capture_path = pathlib.Path(os.environ["CAPTURE_PATH_FOR_CAPTURE"])
 data = json.loads(settings_path.read_text())
 capture_path.open("a").write("has_stop=%s\n" % ("Stop" in data.get("hooks", {})))
+capture_path.open("a").write("has_permission_request=%s\n" % ("PermissionRequest" in data.get("hooks", {})))
+capture_path.open("a").write("permission_request_matcher=%s\n" % data.get("hooks", {}).get("PermissionRequest", [{}])[0].get("matcher"))
 capture_path.open("a").write("has_agent_teams=%s\n" % (data.get("env", {}).get("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS") == "1"))
 capture_path.open("a").write("custom_env=%s\n" % data.get("env", {}).get("TEST_ENV"))
 PY
@@ -428,6 +430,8 @@ EOF
     assert_contains "args=-p Reply with exactly: ok" "$capture_file"
     assert_contains "session=claude-code-agent-" "$capture_file"
     assert_contains "has_stop=True" "$capture_file"
+    assert_contains "has_permission_request=True" "$capture_file"
+    assert_contains "permission_request_matcher=Bash" "$capture_file"
     assert_contains "has_agent_teams=True" "$capture_file"
     assert_contains "custom_env=present" "$capture_file"
 
@@ -435,8 +439,184 @@ EOF
     rm -rf "$runtime_dir" "$fake_bin_dir" "$workdir"
 }
 
+test_takeover_enables_safe_permission_policy() {
+    local runtime_dir tmux_session
+
+    runtime_dir="$(mktemp -d)"
+    tmux_session="claude-agent-regression-$$-perm"
+
+    tmux new-session -d -s "$tmux_session" 'sleep 60'
+    mkdir -p "$runtime_dir/sessions"
+
+    jq -n \
+        --arg session_key "perm-test" \
+        --arg project_label "demo" \
+        --arg cwd "/tmp/demo" \
+        --arg tmux_session "$tmux_session" \
+        '{
+            session_key: $session_key,
+            project_label: $project_label,
+            cwd: $cwd,
+            tmux_session: $tmux_session,
+            launch_mode: "interactive",
+            controller: "local",
+            notify_mode: "off",
+            permission_policy: "off",
+            status: "running",
+            managed_by: "local",
+            attached_clients: 0,
+            tmux_exists: true,
+            chat_id: "",
+            channel: "telegram",
+            agent_name: "main"
+        }' > "$runtime_dir/sessions/perm-test.json"
+
+    OPENCLAW_CLAUDE_RUNTIME_DIR="$runtime_dir" \
+        bash "$ROOT_DIR/runtime/takeover.sh" --no-wake perm-test >/dev/null
+
+    assert_eq "safe" "$(jq -r '.permission_policy' "$runtime_dir/sessions/perm-test.json")" "takeover should enable safe permission policy"
+
+    tmux kill-session -t "$tmux_session" >/dev/null 2>&1 || true
+    rm -rf "$runtime_dir"
+}
+
+test_reclaim_disables_permission_policy() {
+    local runtime_dir tmux_session
+
+    runtime_dir="$(mktemp -d)"
+    tmux_session="claude-agent-regression-$$-reclaim"
+
+    tmux new-session -d -s "$tmux_session" 'sleep 60'
+    mkdir -p "$runtime_dir/sessions"
+
+    jq -n \
+        --arg session_key "reclaim-test" \
+        --arg project_label "demo" \
+        --arg cwd "/tmp/demo" \
+        --arg tmux_session "$tmux_session" \
+        '{
+            session_key: $session_key,
+            project_label: $project_label,
+            cwd: $cwd,
+            tmux_session: $tmux_session,
+            launch_mode: "interactive",
+            controller: "openclaw",
+            notify_mode: "attention",
+            permission_policy: "safe",
+            status: "running",
+            managed_by: "openclaw",
+            attached_clients: 0,
+            tmux_exists: true,
+            chat_id: "",
+            channel: "telegram",
+            agent_name: "main"
+        }' > "$runtime_dir/sessions/reclaim-test.json"
+
+    OPENCLAW_CLAUDE_RUNTIME_DIR="$runtime_dir" \
+        bash "$ROOT_DIR/runtime/reclaim.sh" reclaim-test >/dev/null
+
+    assert_eq "off" "$(jq -r '.permission_policy' "$runtime_dir/sessions/reclaim-test.json")" "reclaim should disable permission policy"
+
+    tmux kill-session -t "$tmux_session" >/dev/null 2>&1 || true
+    rm -rf "$runtime_dir"
+}
+
+test_permission_request_auto_allows_safe_bash() {
+    local runtime_dir stdout_file
+
+    runtime_dir="$(mktemp -d)"
+    stdout_file="$(mktemp)"
+    mkdir -p "$runtime_dir/sessions"
+
+    jq -n \
+        '{
+            session_key: "perm-allow",
+            project_label: "demo",
+            cwd: "/tmp/demo",
+            tmux_session: "claude-demo",
+            launch_mode: "interactive",
+            controller: "openclaw",
+            notify_mode: "attention",
+            permission_policy: "safe",
+            status: "running",
+            managed_by: "openclaw",
+            attached_clients: 0,
+            tmux_exists: true,
+            chat_id: "",
+            channel: "telegram",
+            agent_name: "main"
+        }' > "$runtime_dir/sessions/perm-allow.json"
+
+    printf '%s' '{"session_id":"sess-safe","cwd":"/tmp/demo","permission_mode":"default","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"git status --short","description":"Inspect working tree"}}' | \
+        OPENCLAW_CLAUDE_RUNTIME_DIR="$runtime_dir" \
+        OPENCLAW_HANDOFF_CAPABLE=1 \
+        OPENCLAW_SESSION_KEY=perm-allow \
+        bash "$ROOT_DIR/hooks/on_permission_request.sh" >"$stdout_file"
+
+    assert_eq "allow" "$(jq -r '.hookSpecificOutput.decision.behavior' "$stdout_file")" "safe bash should be auto-allowed"
+    assert_eq "session" "$(jq -r '.hookSpecificOutput.decision.updatedPermissions[0].destination' "$stdout_file")" "allow should be session-scoped"
+    assert_eq "git status --short" "$(jq -r '.hookSpecificOutput.decision.updatedPermissions[0].rules[0].ruleContent' "$stdout_file")" "exact command should be cached"
+    assert_eq "auto_allow" "$(jq -r '.last_permission_decision' "$runtime_dir/sessions/perm-allow.json")" "session metadata should record auto allow"
+
+    rm -f "$stdout_file"
+    rm -rf "$runtime_dir"
+}
+
+test_permission_request_auto_denies_dangerous_bash() {
+    local runtime_dir stdout_file fake_bin_dir args_file
+
+    runtime_dir="$(mktemp -d)"
+    stdout_file="$(mktemp)"
+    fake_bin_dir="$(mktemp -d)"
+    args_file="$(mktemp)"
+    mkdir -p "$runtime_dir/sessions"
+
+    printf '%s\n' \
+        '#!/bin/bash' \
+        "printf '%s\n' \"\$*\" > '$args_file'" \
+        'exit 0' > "$fake_bin_dir/openclaw"
+    chmod +x "$fake_bin_dir/openclaw"
+
+    jq -n \
+        '{
+            session_key: "perm-deny",
+            project_label: "demo",
+            cwd: "/tmp/demo",
+            tmux_session: "claude-demo",
+            launch_mode: "interactive",
+            controller: "openclaw",
+            notify_mode: "attention",
+            permission_policy: "safe",
+            status: "running",
+            managed_by: "openclaw",
+            attached_clients: 0,
+            tmux_exists: true,
+            chat_id: "",
+            channel: "telegram",
+            agent_name: "main"
+        }' > "$runtime_dir/sessions/perm-deny.json"
+
+    printf '%s' '{"session_id":"sess-danger","cwd":"/tmp/demo","permission_mode":"default","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"rm -rf node_modules","description":"Remove dependencies"}}' | \
+        OPENCLAW_CLAUDE_RUNTIME_DIR="$runtime_dir" \
+        OPENCLAW_HANDOFF_CAPABLE=1 \
+        OPENCLAW_SESSION_KEY=perm-deny \
+        PATH="$fake_bin_dir:/usr/bin:/bin" \
+        bash "$ROOT_DIR/hooks/on_permission_request.sh" >"$stdout_file"
+
+    sleep 2
+
+    assert_eq "deny" "$(jq -r '.hookSpecificOutput.decision.behavior' "$stdout_file")" "dangerous bash should be auto-denied"
+    assert_contains "--session-id claude-code-agent-perm-deny" "$args_file"
+    assert_eq "auto_deny" "$(jq -r '.last_permission_decision' "$runtime_dir/sessions/perm-deny.json")" "session metadata should record auto deny"
+
+    rm -f "$stdout_file" "$args_file"
+    rm -rf "$runtime_dir" "$fake_bin_dir"
+}
+
 main() {
     test_takeover_preserves_route
+    test_takeover_enables_safe_permission_policy
+    test_reclaim_disables_permission_policy
     test_selector_ambiguity_reports_multiple
     test_hook_logs_are_private
     test_hook_wake_logs_real_result
@@ -447,6 +627,8 @@ main() {
     test_task_completed_gate_is_opt_in
     test_run_claude_requires_print_mode
     test_run_claude_injects_managed_settings_overlay
+    test_permission_request_auto_allows_safe_bash
+    test_permission_request_auto_denies_dangerous_bash
     echo "All regression tests passed."
 }
 

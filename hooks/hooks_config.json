@@ -27,6 +27,18 @@
         ]
       }
     ],
+    "PermissionRequest": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.openclaw/workspace/skills/claude-code-agent/hooks/on_permission_request.sh\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
     "TeammateIdle": [
       {
         "hooks": [

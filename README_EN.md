@@ -62,6 +62,15 @@ The knowledge base now explicitly covers:
 - docs and knowledge are maintained against both official docs and live CLI introspection
 - regression coverage now includes session routing and settings overlay behavior
 
+## Current Mainline Upgrades
+
+Work continued after `v0.2.0`:
+
+- the managed overlay now wires in a `PermissionRequest(Bash)` hook
+- OpenClaw takeover now defaults `permission_policy` to `safe`
+- a narrow set of obviously safe Bash reads/checks can be auto-approved and cached at the current session scope
+- obviously dangerous Bash requests can be denied before they fall back to manual tmux approval
+
 ## Architecture
 
 ### Claude Code
@@ -102,6 +111,8 @@ Important identifiers:
 - `tmux_session`
 - `cwd`
 - `openclaw_session_id`
+- `permission_mode`
+- `permission_policy`
 
 ## Main Scripts
 

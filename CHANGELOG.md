@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- `PermissionRequest` hook for managed Claude sessions, with session-scoped auto-allow for a narrow safe Bash allowlist
+
+### Changed
+- OpenClaw takeover now enables `permission_policy=safe` by default for managed sessions
+- Local reclaim now turns managed approval automation back off
+
+### Fixed
+- Reduced the approval-chain friction where Claude still had to wait for tmux-side human handling on common safe shell reads/tests
+- Auto-denied obviously dangerous Bash requests before they fall through to manual tmux approval
+
 ## [0.2.0] - 2026-03-23
 
 This release turns `claude-code-agent` from a tmux-and-hooks prototype into a cleaner managed runtime layer with explicit OpenClaw session routing and session-scoped Claude settings injection.

@@ -103,7 +103,7 @@ Claude Code 不只是编程工具。**任何可以在终端 + AI 协助下完成
 | **只看不改** | `--permission-mode plan` | 方案设计、代码分析 |
 
 - **全自动 / 编辑自动**：Claude Code 自行决定执行，完成后通知我检查
-- **我来审批**：Claude Code 遇到需确认的操作会暂停，Notification hook 唤醒我，我判断批准或拒绝
+- **我来审批**：默认仍保留人工把关，但托管层会先用 `PermissionRequest(Bash)` 自动处理一小部分明确安全/明确危险的命令；剩余请求再由 Notification hook 唤醒我处理
 - **只看不改**：plan 模式，只分析不修改
 
 两种有审批的模式下，**中间过程（审批、迭代、修改）都由我自主处理，用户只关心最终结果**。
@@ -260,8 +260,10 @@ tmux send-keys -t <tmux-session> Enter
 #### 任务完成（Stop hook 唤醒）
 → 检查输出（`last_assistant_message`）→ 质量合格就准备汇报 → 不合格就继续让 Claude Code 修改
 
-#### 权限请求（Notification hook 唤醒，仅有审批的模式）
-→ 读取权限请求内容 → 判断是否安全/合理 → 通过 tmux 批准或拒绝
+#### 权限请求（优先走 PermissionRequest，剩余再走 Notification）
+→ 若是明确安全的 Bash 读操作/检查命令，自动批准并写入当前 session 级 permissions
+→ 若是明显危险的 Bash 命令，自动拒绝并唤醒我
+→ 若仍需人工判断，再由 Notification hook 唤醒我，通过 tmux 批准或拒绝
 
 #### 等待输入（Notification hook 唤醒）
 → Claude Code 在等待下一步指令 → 通过 tmux 发送后续指令
@@ -499,6 +501,10 @@ bash {baseDir}/hooks/stop_claude.sh claude-team
 托管会话完成响应 ──→ Stop hook (on_stop.sh) ──→ 更新 metadata
                                              ├──→ notify_mode=live 时通知用户
                                              └──→ controller=openclaw 时唤醒 Agent
+
+托管会话请求 Bash 审批 ─→ PermissionRequest hook ─→ 安全命令自动批准（session 级缓存）
+                     (on_permission_request.sh) ├──→ 高风险命令自动拒绝并按需唤醒 Agent
+                                                └──→ 其余请求继续落到 Claude 默认审批流
 
 托管会话需审批 ───→ Notification hook ──→ 更新 metadata
                    (on_notification.sh)  ├──→ attention/live 时按需通知

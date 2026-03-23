@@ -64,6 +64,17 @@
 - 文档和知识库改成“官方文档 + 本机 CLI 自省”双路径维护
 - 回归测试开始覆盖托管路由与 settings 注入这种架构级行为
 
+## 当前主线继续升级中
+
+`v0.2.0` 发布之后，主线已经继续向前推进：
+
+- 托管 overlay 开始接入 `PermissionRequest(Bash)` hook
+- OpenClaw 接管后的默认 `permission_policy` 会切到 `safe`
+- 一小部分明确安全的 Bash 读操作/检查命令会被自动批准，并写入当前 session 级 permissions
+- 明显危险的 Bash 请求会在权限弹窗前被自动拒绝并唤醒 OpenClaw
+
+这意味着“Claude 卡在审批里，OpenClaw 还得靠 tmux 人眼进场点 Yes/No”的频率会进一步下降。
+
 ## 工作原理
 
 本项目的核心是三层：
@@ -105,6 +116,8 @@
 - `tmux_session`
 - `cwd`
 - `openclaw_session_id`
+- `permission_mode`
+- `permission_policy`
 
 ## 主要脚本
 

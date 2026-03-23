@@ -38,7 +38,8 @@
 
 - `Stop` hook 的 `last_assistant_message` 仍可用于快速摘要
 - `Notification` 中继续能收到 `permission_prompt` 与 `idle_prompt`
-- 本项目当前只接入最关键的 4 类 hook；`PermissionRequest` 等仍待后续评估
+- `PermissionRequest` 可在权限弹窗前直接做 allow/deny，并支持 session 级 `updatedPermissions`
+- 本项目现已接入 `PermissionRequest(Bash)`，用于自动处理一小部分高确定性的审批场景
 
 ### Agent Teams
 
@@ -54,6 +55,6 @@
 
 ## 后续待验证
 
-- `PermissionRequest` hook 是否值得接入本项目的审批链
 - `--settings` overlay 与用户自定义 hooks 的合并细节边界
+- `PermissionRequest` safe allowlist 是否还应扩展到更多只读/校验命令
 - Agent Teams 在不同终端环境下的 `--teammate-mode` 细节

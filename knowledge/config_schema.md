@@ -62,6 +62,7 @@ Claude Code 当前支持这些配置来源：
   "hooks": {
     "Stop": [...],
     "Notification": [...],
+    "PermissionRequest": [...],
     "TeammateIdle": [...],
     "TaskCompleted": [...]
   }
@@ -91,6 +92,18 @@ Claude Code 当前支持这些配置来源：
           {
             "type": "command",
             "command": "bash \"/abs/path/hooks/on_notification.sh\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"/abs/path/hooks/on_permission_request.sh\"",
             "timeout": 15
           }
         ]
@@ -138,6 +151,7 @@ Claude Code 当前支持这些配置来源：
 
 - `allow` / `deny` / `ask` 是重要的静态策略
 - wrapper 级 `--permission-mode` 仍然优先
+- 托管 overlay 里的 `PermissionRequest` hook 会补一层 session 级动态审批策略
 - 对托管任务，优先通过 wrapper 决定模式，不把核心行为藏进用户全局配置
 
 ### 其他高频字段

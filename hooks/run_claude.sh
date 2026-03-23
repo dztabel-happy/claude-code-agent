@@ -32,6 +32,7 @@ OPENCLAW_SESSION_ID="${OPENCLAW_OPENCLAW_SESSION_ID:-$(session_store_openclaw_se
 CONTROLLER="${OPENCLAW_CONTROLLER:-openclaw}"
 NOTIFY_MODE="${OPENCLAW_NOTIFY_MODE:-attention}"
 MANAGED_BY="${OPENCLAW_MANAGED_BY:-openclaw}"
+PERMISSION_POLICY="${OPENCLAW_PERMISSION_POLICY:-}"
 CHAT_ID="${OPENCLAW_AGENT_CHAT_ID:-${CLAUDE_AGENT_CHAT_ID:-}}"
 CHANNEL="${OPENCLAW_AGENT_CHANNEL:-${CLAUDE_AGENT_CHANNEL:-telegram}}"
 AGENT_NAME="${OPENCLAW_AGENT_NAME:-${CLAUDE_AGENT_NAME:-main}}"
@@ -78,10 +79,43 @@ case "$NOTIFY_MODE" in
         ;;
 esac
 
+if [ -z "$PERMISSION_POLICY" ]; then
+    if [ "$CONTROLLER" = "openclaw" ]; then
+        PERMISSION_POLICY="safe"
+    else
+        PERMISSION_POLICY="off"
+    fi
+fi
+
+case "$PERMISSION_POLICY" in
+    off|deny-dangerous|safe) ;;
+    *)
+        echo "❌ Invalid OPENCLAW_PERMISSION_POLICY: $PERMISSION_POLICY"
+        exit 1
+        ;;
+esac
+
 for arg in "${CLAUDE_ARGS[@]}"; do
     case "$arg" in
         -p|--print)
             PRINT_MODE=1
+            ;;
+    esac
+done
+
+MODE="default"
+for ((i=0; i<${#CLAUDE_ARGS[@]}; i++)); do
+    case "${CLAUDE_ARGS[i]}" in
+        --dangerously-skip-permissions)
+            MODE="bypassPermissions"
+            ;;
+        --permission-mode)
+            if (( i + 1 < ${#CLAUDE_ARGS[@]} )); then
+                MODE="${CLAUDE_ARGS[i+1]}"
+            fi
+            ;;
+        --permission-mode=*)
+            MODE="${CLAUDE_ARGS[i]#--permission-mode=}"
             ;;
     esac
 done
@@ -109,6 +143,8 @@ METADATA_JSON=$(jq -n \
     --arg agent_name "$AGENT_NAME" \
     --arg openclaw_session_id "$OPENCLAW_SESSION_ID" \
     --arg settings_path "$MANAGED_SETTINGS_PATH" \
+    --arg permission_mode "$MODE" \
+    --arg permission_policy "$PERMISSION_POLICY" \
     --arg launcher_pid "$$" \
     '{
         session_key: $session_key,
@@ -137,7 +173,9 @@ METADATA_JSON=$(jq -n \
         channel: $channel,
         agent_name: $agent_name,
         openclaw_session_id: $openclaw_session_id,
-        managed_settings_path: $settings_path
+        managed_settings_path: $settings_path,
+        permission_mode: $permission_mode,
+        permission_policy: $permission_policy
     }')
 
 session_store_write_json "$SESSION_KEY" "$METADATA_JSON"
@@ -183,6 +221,7 @@ export OPENCLAW_SESSION_KEY="$SESSION_KEY"
 export OPENCLAW_TMUX_SESSION=""
 export OPENCLAW_PROJECT_LABEL="$PROJECT_LABEL"
 export OPENCLAW_OPENCLAW_SESSION_ID="$OPENCLAW_SESSION_ID"
+export OPENCLAW_PERMISSION_POLICY="$PERMISSION_POLICY"
 
 cd "$WORKDIR"
 "$CLAUDE_BIN" --settings "$MANAGED_SETTINGS_PATH" "${CLAUDE_ARGS[@]}" &
