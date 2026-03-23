@@ -48,6 +48,8 @@ Claude Code 是执行专家，OpenClaw 是编排者。
 
 然后 OpenClaw 应该自己选择这个 skill，启动或复用一个托管的 Claude Code 会话，并通过 hooks 唤醒的方式继续推进任务。
 
+这个仓库里的“更简单默认值”，目的是降低日常使用摩擦，不是给 OpenClaw 封顶。只要任务确实需要，OpenClaw 仍然应该升级模型、effort、工具链或执行模式。
+
 这个仓库里的 shell 脚本主要用于：
 
 - skill 内部控制面

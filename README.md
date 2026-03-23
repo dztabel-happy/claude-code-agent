@@ -48,6 +48,8 @@ Your normal entry point is **OpenClaw conversation**, for example:
 
 OpenClaw should then choose this skill, launch or reuse a managed Claude Code session, and continue the task through hook wakeups.
 
+The simplifications in this repo are meant to reduce day-to-day friction, not cap OpenClaw's ceiling. When a task genuinely needs stronger orchestration, OpenClaw should still escalate models, effort, tools, or execution mode.
+
 The shell scripts in this repo are mainly:
 
 - the skill's internal control plane

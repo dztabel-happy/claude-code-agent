@@ -40,6 +40,17 @@ metadata: {"openclaw":{"requires":{"bins":["bash","jq","tmux","claude","openclaw
 - OpenClaw 必须主动设计提示词，而不是机械转发用户原话
 - OpenClaw 必须先决定“任务模式”，再决定怎么启动 Claude
 
+## 软默认，不封顶
+
+这个 skill 的大部分建议是“默认工作法”，不是在给 OpenClaw 上枷锁。
+
+区分方式：
+
+- 安全、会话隔离、显式路由：这是硬约束，不能随便破
+- 模型选择、会话模式、是否用 Chrome、是否开 worktree、是否开 Agent Teams：这是软默认，可以按任务需要突破
+
+只要 OpenClaw 能说明理由，并且不会破坏安全与路由边界，就应该保留临场决策空间。
+
 ## OpenClaw 角色定位
 
 OpenClaw 在这个 skill 里是“项目经理 + 调度器 + 质检人”，Claude Code 是“执行专家”。
@@ -80,6 +91,16 @@ OpenClaw 在这个 skill 里是“项目经理 + 调度器 + 质检人”，Clau
 
 - 默认关闭 Agent Teams
 - 只有任务天然可并行、且收益明显时，才显式加 `--agent-teams`
+
+### 突破默认值的条件
+
+出现这些情况时，OpenClaw 可以合理突破默认值：
+
+- 用户目标本身就是高复杂度、长链路、多阶段任务
+- 任务需要浏览器、联网、worktree、结构化输出或子代理
+- 用户明确要求更激进或更高强度的执行方式
+- 默认路径已经证明不够，需要升级模型、effort 或会话模式
+- 任务天然适合并行，Agent Teams 的收益明显高于协调成本
 
 ## 常用命令
 
