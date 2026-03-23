@@ -1,6 +1,6 @@
 #!/bin/bash
 # Claude Code one-shot managed runner.
-# Usage: ./run_claude.sh <workdir> [claude args...]
+# Usage: ./run_claude.sh <workdir> [--agent-teams] [claude args...]
 
 set -euo pipefail
 
@@ -9,10 +9,40 @@ SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/../runtime/session_store.sh"
 
+print_help() {
+    cat <<EOF
+Usage: $0 <workdir> [--agent-teams] -p [claude args...]
+
+Run a one-shot managed Claude Code job in print mode.
+
+Examples:
+  $0 /path/to/project -p --permission-mode acceptEdits "Summarize the repo"
+  $0 /path/to/project -p --model opus --effort high "Review the architecture"
+  $0 /path/to/project --agent-teams -p "Run a parallel investigation"
+
+Wrapper-only options:
+  --agent-teams       Enable Agent Teams hooks and experimental env for this run
+  --no-agent-teams    Force Agent Teams off for this run
+  -h, --help          Show this help
+
+Important:
+  - This wrapper requires Claude print mode (-p or --print).
+  - Managed hooks are injected automatically with --settings.
+  - Agent Teams is opt-in and off by default.
+  - --dangerously-skip-permissions should only be used in trusted isolated environments.
+EOF
+}
+
+if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+    print_help
+    exit 0
+fi
+
 WORKDIR="${1:?Usage: $0 <workdir> [claude args...]}"
 shift
 CLAUDE_ARGS=("$@")
 CUSTOM_SETTINGS=""
+AGENT_TEAMS_ENABLED="${OPENCLAW_ENABLE_AGENT_TEAMS:-0}"
 FILTERED_CLAUDE_ARGS=()
 
 if ! command -v claude >/dev/null 2>&1; then
@@ -51,6 +81,12 @@ for ((i=0; i<${#CLAUDE_ARGS[@]}; i++)); do
         --settings=*)
             CUSTOM_SETTINGS="${CLAUDE_ARGS[i]#--settings=}"
             ;;
+        --agent-teams)
+            AGENT_TEAMS_ENABLED=1
+            ;;
+        --no-agent-teams)
+            AGENT_TEAMS_ENABLED=0
+            ;;
         *)
             FILTERED_CLAUDE_ARGS+=("${CLAUDE_ARGS[i]}")
             ;;
@@ -58,6 +94,14 @@ for ((i=0; i<${#CLAUDE_ARGS[@]}; i++)); do
 done
 
 CLAUDE_ARGS=("${FILTERED_CLAUDE_ARGS[@]}")
+case "$AGENT_TEAMS_ENABLED" in
+    0|1) ;;
+    *)
+        echo "❌ Invalid OPENCLAW_ENABLE_AGENT_TEAMS: $AGENT_TEAMS_ENABLED"
+        exit 1
+        ;;
+esac
+OPENCLAW_ENABLE_AGENT_TEAMS="$AGENT_TEAMS_ENABLED"
 MANAGED_SETTINGS_PATH="$(session_store_write_combined_settings "$SESSION_KEY" "$SKILL_DIR" "$CUSTOM_SETTINGS" "$WORKDIR")" || {
     echo "❌ Failed to prepare managed Claude settings overlay"
     exit 1
@@ -146,6 +190,7 @@ METADATA_JSON=$(jq -n \
     --arg permission_mode "$MODE" \
     --arg permission_policy "$PERMISSION_POLICY" \
     --arg launcher_pid "$$" \
+    --arg agent_teams_enabled "$AGENT_TEAMS_ENABLED" \
     '{
         session_key: $session_key,
         project_label: $project_label,
@@ -175,7 +220,8 @@ METADATA_JSON=$(jq -n \
         openclaw_session_id: $openclaw_session_id,
         managed_settings_path: $settings_path,
         permission_mode: $permission_mode,
-        permission_policy: $permission_policy
+        permission_policy: $permission_policy,
+        agent_teams_enabled: ($agent_teams_enabled == "1")
     }')
 
 session_store_write_json "$SESSION_KEY" "$METADATA_JSON"

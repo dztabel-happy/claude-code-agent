@@ -5,7 +5,8 @@
 1. `claude --version` 与 `state/version.txt` 不一致
 2. 超过 7 天未更新
 3. 用户要求“按最新官方文档核对”
-4. OpenClaw 路由/skills/session 行为发生变化
+4. OpenClaw 路由 / skills / session 行为发生变化
+5. 本项目默认策略发生变化
 
 ## 更新步骤
 
@@ -15,6 +16,7 @@
 claude --version
 npm view @anthropic-ai/claude-code version
 openclaw --version
+npm view openclaw version
 cat state/version.txt
 cat state/last_updated.txt
 ```
@@ -26,15 +28,15 @@ claude --help
 claude agents
 claude mcp list
 openclaw agent --help
-openclaw message --help
+openclaw skills list --json
 ```
 
 ### 3. 官方文档复核
 
 - Claude Code:
   - `https://code.claude.com/docs/en/cli-reference`
-  - `https://code.claude.com/docs/en/hooks`
-  - `https://code.claude.com/docs/en/settings`
+  - `https://docs.anthropic.com/en/docs/claude-code/hooks`
+  - `https://docs.anthropic.com/en/docs/claude-code/settings`
   - `https://code.claude.com/docs/en/permissions`
   - `https://code.claude.com/docs/en/agent-teams`
 - OpenClaw:
@@ -44,11 +46,13 @@ openclaw message --help
 ### 4. 核对实现文件
 
 ```bash
-sed -n '1,240p' hooks/start_claude.sh
-sed -n '1,240p' hooks/run_claude.sh
+sed -n '1,260p' hooks/start_claude.sh
+sed -n '1,260p' hooks/run_claude.sh
 sed -n '1,260p' hooks/hook_common.sh
-sed -n '1,260p' runtime/takeover.sh
 sed -n '1,320p' runtime/session_store.sh
+sed -n '1,220p' hooks/hooks_config.json
+sed -n '1,220p' SKILL.md
+sed -n '1,220p' INSTALL.md
 ```
 
 ### 5. 更新知识与文档
@@ -59,6 +63,7 @@ sed -n '1,320p' runtime/session_store.sh
 - `knowledge/changelog.md`
 - `references/claude-code-reference.md`
 - `README.md`
+- `README_ZH.md`
 - `INSTALL.md`
 
 ### 6. 更新状态文件
@@ -79,6 +84,6 @@ bash tests/regression.sh
 向用户明确说明：
 
 1. Claude Code 版本差异
-2. OpenClaw 路由/skills 是否变化
-3. 本项目哪些文件被升级
-4. 是否存在仍待验证的灰度能力
+2. OpenClaw skills / 路由是否变化
+3. 本项目哪些默认策略被调整
+4. 是否仍有待验证的灰度能力

@@ -8,6 +8,32 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/session_store.sh"
 
+print_help() {
+    cat <<EOF
+Usage: $0 [options] <selector>
+
+Hand a managed Claude session over to OpenClaw.
+
+Examples:
+  $0 my-project
+  $0 --no-wake my-project
+  $0 --notify-mode live --agent ops-bot --channel telegram my-project
+  $0 --permission-policy deny-dangerous my-project
+
+Options:
+  --notify-mode <mode>          off | attention | live
+  --permission-policy <policy>  off | deny-dangerous | safe
+  --chat-id <id>                Override delivery target
+  --channel <channel>           Override delivery channel
+  --agent <name>                Override OpenClaw agent name
+  --no-wake                     Update session ownership without sending an OpenClaw wake
+  -h, --help                    Show this help
+
+Selector resolution order:
+  session_key -> tmux_session -> full cwd -> unique project_label -> unique cwd basename
+EOF
+}
+
 NOTIFY_MODE="attention"
 CHAT_ID=""
 CHANNEL=""
@@ -50,7 +76,7 @@ while [ "$#" -gt 0 ]; do
             shift
             ;;
         --help|-h)
-            echo "Usage: $0 [--notify-mode MODE] [--permission-policy POLICY] [--chat-id ID] [--channel CHANNEL] [--agent NAME] [--no-wake] <selector>"
+            print_help
             exit 0
             ;;
         *)

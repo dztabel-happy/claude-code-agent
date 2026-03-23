@@ -8,53 +8,54 @@
 - Claude Code（本机）：`2.1.80`
 - Claude Code（npm 查询时）：`2.1.81`
 - OpenClaw CLI（本机）：`2026.3.11`
+- OpenClaw（npm 查询时）：`2026.3.22`
+- Codex CLI（本机）：`0.111.0`
 
-## 2026-03-23 升级结论
+## 2026-03-23 简化升级结论
 
-### Claude Code 侧新增/确认
+### 官方约束确认
 
-- `--settings` 与 `--setting-sources` 现在是托管 overlay 的首选入口
-- `--session-id` 可显式指定 Claude 会话 ID
-- `--effort` 已进入 CLI 主帮助
-- `--plugin-dir`、`--ide`、`--no-session-persistence`、`--allow-dangerously-skip-permissions` 已进入 CLI 主帮助
-- `--permission-mode` 当前含 `auto`
-- `remote-control` 命令存在，但本机账号仍提示未开通
+- Claude Code 侧：`--settings` 与 `--setting-sources` 仍是托管 overlay 的核心入口
+- Claude Code 侧：`--permission-mode` 当前含 `auto`
+- Claude Code 侧：`--dangerously-skip-permissions` 仍应视为隔离环境专用高风险模式
+- OpenClaw skills 侧：skill metadata 需要更贴近最新 parser 约束，`metadata` 采用单行 JSON 更稳妥
 
-### 本项目升级后的关键架构变化
+### 本项目本轮升级
 
-- wrappers 改为每次启动都动态生成 Claude managed settings overlay
-- 不再要求“要用托管会话就必须先手工把 hooks 写进全局 `~/.claude/settings.json`”
-- hook 唤醒改为显式 `openclaw agent --session-id ...`
-- 每个 Claude 托管会话映射到独立 OpenClaw 会话，避免共享 agent `main` 上下文
+- `SKILL.md` 改为更短、更聚焦的运行规范
+- `metadata` 改成单行 JSON 对象写法
+- Agent Teams 改为显式 opt-in：只有传 `--agent-teams` 才注入实验 env 和团队 hooks
+- 安装文档不再假设固定在 `~/.openclaw/workspace/skills/...`
+- `hooks/hooks_config.json` 改成 `__SKILL_DIR__` 模板，不再硬编码路径
+- 默认建议从“尽量全自动”收敛为“普通任务简单、危险能力显式开启”
+
+### 设计层判断
+
+- 运行时内核依然成立：wrapper、hooks、session store、handoff / reclaim、tmux 可观测性都保留价值
+- 真正需要收敛的是默认值和说明方式，而不是继续加更多功能
+- 参考 Codex 最新 docs 的设计倾向，本项目也应遵守：skill 聚焦、默认简单、进阶能力显式 opt-in
 
 ## 实测发现
 
 ### 会话与路由
 
 - 只传 `--agent main` 容易把多个 Claude 托管会话压进同一条 OpenClaw 上下文
-- 使用显式 `--session-id` 后，托管会话之间的上下文边界清晰得多
+- 使用显式 `openclaw agent --session-id ...` 后，托管会话边界清晰得多
 
 ### Hooks
 
-- `Stop` hook 的 `last_assistant_message` 仍可用于快速摘要
-- `Notification` 中继续能收到 `permission_prompt` 与 `idle_prompt`
-- `PermissionRequest` 可在权限弹窗前直接做 allow/deny，并支持 session 级 `updatedPermissions`
-- 本项目现已接入 `PermissionRequest(Bash)`，用于自动处理一小部分高确定性的审批场景
-
-### Agent Teams
-
-- 文档仍保留 Agent Teams 用法
-- 但 CLI 主帮助并不会把所有团队相关 flag 都列出来
-- 使用前应优先核对官方最新文档，而不是只看 `claude --help`
+- `Stop`、`Notification(permission_prompt|idle_prompt)`、`PermissionRequest(Bash)` 仍是当前最稳定的托管 hooks 组合
+- `PermissionRequest` 仍支持 session 级 `updatedPermissions`
+- 团队相关 hooks 继续可用，但更适合作为 opt-in 能力而不是默认前提
 
 ### 权限
 
-- `auto` 已成为官方列出的 permission mode 之一
-- “危险跳权”与“允许启用危险跳权”已经是两个不同 flag
-- 不应再把跳权模式宣传成绝对无阻塞
+- `acceptEdits` 仍是常规可信仓库的高性价比默认值
+- “危险跳权”与“允许启用危险跳权”仍是两个不同概念
+- 不应把跳权模式宣传成绝对无阻塞
 
 ## 后续待验证
 
-- `--settings` overlay 与用户自定义 hooks 的合并细节边界
-- `PermissionRequest` safe allowlist 是否还应扩展到更多只读/校验命令
-- Agent Teams 在不同终端环境下的 `--teammate-mode` 细节
+- `--settings` overlay 与用户自定义 hooks 的合并边界
+- `PermissionRequest` safe allowlist 是否还应扩展到更多只读 / 校验命令
+- Agent Teams 在不同环境下的更多行为差异

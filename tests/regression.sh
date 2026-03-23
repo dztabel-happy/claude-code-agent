@@ -56,6 +56,24 @@ assert_file_mode() {
     fi
 }
 
+wait_for_contains() {
+    local needle="${1:?needle required}"
+    local haystack_file="${2:?haystack file required}"
+    local attempts="${3:-50}"
+    local delay="${4:-0.1}"
+    local i
+
+    for i in $(seq 1 "$attempts"); do
+        if grep -Fq -- "$needle" "$haystack_file" 2>/dev/null; then
+            return 0
+        fi
+        sleep "$delay"
+    done
+
+    echo "WAIT_FOR_CONTAINS failed: '$needle' not found in $haystack_file" >&2
+    exit 1
+}
+
 test_takeover_preserves_route() {
     local runtime_dir tmux_session
 
@@ -163,10 +181,8 @@ test_hook_wake_logs_real_result() {
         PATH="$fake_bin_dir:/usr/bin:/bin" bash -lc \
         "source '$ROOT_DIR/hooks/hook_common.sh'; hook_wake_openclaw '$log_file' wake-result-test openclaw main telegram 'wake message'"
 
-    sleep 1
-
-    assert_contains "Agent wake queued" "$log_file"
-    assert_contains "Agent wake failed (exit=1)" "$log_file"
+    wait_for_contains "Agent wake queued" "$log_file"
+    wait_for_contains "Agent wake failed (exit=1)" "$log_file"
     assert_not_contains "Agent wake fired" "$log_file"
 
     rm -f "$log_file"
@@ -372,6 +388,74 @@ test_run_claude_requires_print_mode() {
     rm -rf "$runtime_dir"
 }
 
+test_wrapper_help_outputs() {
+    local tmp rc
+
+    tmp="$(mktemp)"
+
+    set +e
+    bash "$ROOT_DIR/hooks/start_claude.sh" --help >"$tmp"
+    rc=$?
+    set -e
+    assert_eq "0" "$rc" "start_claude --help should succeed"
+    assert_contains "Start an interactive managed Claude Code session in tmux." "$tmp"
+    assert_contains "--agent-teams" "$tmp"
+
+    set +e
+    bash "$ROOT_DIR/hooks/run_claude.sh" --help >"$tmp"
+    rc=$?
+    set -e
+    assert_eq "0" "$rc" "run_claude --help should succeed"
+    assert_contains "Run a one-shot managed Claude Code job in print mode." "$tmp"
+    assert_contains "This wrapper requires Claude print mode" "$tmp"
+
+    set +e
+    bash "$ROOT_DIR/runtime/start_local_claude.sh" --help >"$tmp"
+    rc=$?
+    set -e
+    assert_eq "0" "$rc" "start_local_claude --help should succeed"
+    assert_contains "Start a managed Claude Code session under local control" "$tmp"
+    assert_contains "runtime/takeover.sh later" "$tmp"
+
+    set +e
+    bash "$ROOT_DIR/runtime/takeover.sh" --help >"$tmp"
+    rc=$?
+    set -e
+    assert_eq "0" "$rc" "takeover --help should succeed"
+    assert_contains "Hand a managed Claude session over to OpenClaw." "$tmp"
+    assert_contains "Selector resolution order:" "$tmp"
+
+    set +e
+    bash "$ROOT_DIR/hooks/stop_claude.sh" --help >"$tmp"
+    rc=$?
+    set -e
+    assert_eq "0" "$rc" "stop_claude --help should succeed"
+    assert_contains "Stop a managed Claude tmux session" "$tmp"
+
+    set +e
+    bash "$ROOT_DIR/runtime/reclaim.sh" --help >"$tmp"
+    rc=$?
+    set -e
+    assert_eq "0" "$rc" "reclaim --help should succeed"
+    assert_contains "Return a managed Claude session to local control." "$tmp"
+
+    set +e
+    bash "$ROOT_DIR/runtime/list_sessions.sh" --help >"$tmp"
+    rc=$?
+    set -e
+    assert_eq "0" "$rc" "list_sessions --help should succeed"
+    assert_contains "List managed Claude sessions from the local runtime store." "$tmp"
+
+    set +e
+    bash "$ROOT_DIR/runtime/session_status.sh" --help >"$tmp"
+    rc=$?
+    set -e
+    assert_eq "0" "$rc" "session_status --help should succeed"
+    assert_contains "Show details for one managed Claude session." "$tmp"
+
+    rm -f "$tmp"
+}
+
 test_run_claude_injects_managed_settings_overlay() {
     local runtime_dir fake_bin_dir capture_file workdir stdout_file stderr_file rc
 
@@ -410,6 +494,8 @@ capture_path = pathlib.Path(os.environ["CAPTURE_PATH_FOR_CAPTURE"])
 data = json.loads(settings_path.read_text())
 capture_path.open("a").write("has_stop=%s\n" % ("Stop" in data.get("hooks", {})))
 capture_path.open("a").write("has_permission_request=%s\n" % ("PermissionRequest" in data.get("hooks", {})))
+capture_path.open("a").write("has_teammate_idle=%s\n" % ("TeammateIdle" in data.get("hooks", {})))
+capture_path.open("a").write("has_task_completed=%s\n" % ("TaskCompleted" in data.get("hooks", {})))
 capture_path.open("a").write("permission_request_matcher=%s\n" % data.get("hooks", {}).get("PermissionRequest", [{}])[0].get("matcher"))
 capture_path.open("a").write("has_agent_teams=%s\n" % (data.get("env", {}).get("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS") == "1"))
 capture_path.open("a").write("custom_env=%s\n" % data.get("env", {}).get("TEST_ENV"))
@@ -431,9 +517,66 @@ EOF
     assert_contains "session=claude-code-agent-" "$capture_file"
     assert_contains "has_stop=True" "$capture_file"
     assert_contains "has_permission_request=True" "$capture_file"
+    assert_contains "has_teammate_idle=False" "$capture_file"
+    assert_contains "has_task_completed=False" "$capture_file"
     assert_contains "permission_request_matcher=Bash" "$capture_file"
-    assert_contains "has_agent_teams=True" "$capture_file"
+    assert_contains "has_agent_teams=False" "$capture_file"
     assert_contains "custom_env=present" "$capture_file"
+
+    rm -f "$capture_file" "$stdout_file" "$stderr_file"
+    rm -rf "$runtime_dir" "$fake_bin_dir" "$workdir"
+}
+
+test_run_claude_opt_in_agent_teams_overlay() {
+    local runtime_dir fake_bin_dir capture_file workdir stdout_file stderr_file rc
+
+    runtime_dir="$(mktemp -d)"
+    fake_bin_dir="$(mktemp -d)"
+    capture_file="$(mktemp)"
+    stdout_file="$(mktemp)"
+    stderr_file="$(mktemp)"
+    workdir="$(mktemp -d)"
+
+    cat > "$fake_bin_dir/claude" <<EOF
+#!/bin/bash
+set -euo pipefail
+SETTINGS_PATH=""
+while [ "\$#" -gt 0 ]; do
+    case "\$1" in
+        --settings)
+            SETTINGS_PATH="\$2"
+            shift 2
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+SETTINGS_PATH_FOR_CAPTURE="\$SETTINGS_PATH" CAPTURE_PATH_FOR_CAPTURE="$capture_file" python3 - <<'PY'
+import json, os, pathlib
+settings_path = pathlib.Path(os.environ["SETTINGS_PATH_FOR_CAPTURE"])
+capture_path = pathlib.Path(os.environ["CAPTURE_PATH_FOR_CAPTURE"])
+data = json.loads(settings_path.read_text())
+capture_path.open("w").write("has_agent_teams=%s\n" % (data.get("env", {}).get("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS") == "1"))
+capture_path.open("a").write("has_teammate_idle=%s\n" % ("TeammateIdle" in data.get("hooks", {})))
+capture_path.open("a").write("has_task_completed=%s\n" % ("TaskCompleted" in data.get("hooks", {})))
+PY
+exit 0
+EOF
+    chmod +x "$fake_bin_dir/claude"
+
+    set +e
+    OPENCLAW_CLAUDE_RUNTIME_DIR="$runtime_dir" \
+        PATH="$fake_bin_dir:$PATH" \
+        bash -c "bash '$ROOT_DIR/hooks/run_claude.sh' '$workdir' --agent-teams -p 'Reply with exactly: ok'" >"$stdout_file" 2>"$stderr_file"
+    rc=$?
+    set -e
+
+    assert_eq "0" "$rc" "run_claude should support explicit Agent Teams opt-in"
+    assert_contains "has_agent_teams=True" "$capture_file"
+    assert_contains "has_teammate_idle=True" "$capture_file"
+    assert_contains "has_task_completed=True" "$capture_file"
 
     rm -f "$capture_file" "$stdout_file" "$stderr_file"
     rm -rf "$runtime_dir" "$fake_bin_dir" "$workdir"
@@ -625,8 +768,10 @@ main() {
     test_hook_wake_uses_explicit_session_id
     test_task_completed_gate_blocks
     test_task_completed_gate_is_opt_in
+    test_wrapper_help_outputs
     test_run_claude_requires_print_mode
     test_run_claude_injects_managed_settings_overlay
+    test_run_claude_opt_in_agent_teams_overlay
     test_permission_request_auto_allows_safe_bash
     test_permission_request_auto_denies_dangerous_bash
     echo "All regression tests passed."

@@ -9,6 +9,29 @@ HOOKS_DIR="$SCRIPT_DIR/../hooks"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/session_store.sh"
 
+print_help() {
+    cat <<EOF
+Usage: $0 [--label LABEL] [--session SESSION_NAME] <workdir> [claude args...]
+
+Start a managed Claude Code session under local control, then attach to tmux immediately.
+
+Examples:
+  $0 /path/to/project --permission-mode acceptEdits
+  $0 --label audit /path/to/project --permission-mode plan
+  $0 --session claude-team /path/to/project --permission-mode acceptEdits --agent-teams
+
+Options:
+  --label <label>       Override the derived project label
+  --session <name>      Override the tmux session name
+  -h, --help            Show this help
+
+Notes:
+  - The session starts with controller=local and notify_mode=off.
+  - Use runtime/takeover.sh later if OpenClaw should take control.
+  - Any Claude arguments after <workdir> are passed through to the wrapper.
+EOF
+}
+
 LABEL=""
 SESSION=""
 WORKDIR=""
@@ -24,7 +47,7 @@ while [ "$#" -gt 0 ]; do
             shift 2
             ;;
         --help|-h)
-            echo "Usage: $0 [--label LABEL] [--session SESSION_NAME] <workdir> [claude args...]"
+            print_help
             exit 0
             ;;
         *)
@@ -36,7 +59,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "$WORKDIR" ]; then
-    echo "❌ Usage: $0 [--label LABEL] [--session SESSION_NAME] <workdir> [claude args...]"
+    echo "❌ Usage: $0 [--label LABEL] [--session SESSION_NAME] <workdir> [claude args...]" >&2
     exit 1
 fi
 

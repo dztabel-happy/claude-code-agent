@@ -1,15 +1,15 @@
 # Claude Code Agent 安装指南
 
-> 这份安装指南对应升级后的新架构：
+> 当前版本的默认思路是：
 > 托管 wrappers 会自动给 Claude 会话注入 managed settings overlay。
-> 对“托管会话”来说，你**不再需要**先手工修改全局 `~/.claude/settings.json`。
+> 对托管会话来说，不需要先手工修改全局 `~/.claude/settings.json`。
 
 ## 前提条件
 
-- OpenClaw 已安装并运行
-- Claude Code 已安装并可正常请求
-- tmux 已安装
-- jq 已安装
+- OpenClaw 已安装并能正常工作
+- Claude Code 已安装并已完成认证
+- `tmux`
+- `jq`
 - 至少一个 OpenClaw 消息通道可用
 
 建议先验证：
@@ -23,33 +23,45 @@ tmux -V
 jq --version
 ```
 
-## 第一步：安装 Skill
+## 第一步：选择安装目录
+
+推荐二选一：
+
+### 方案 A：共享 skill 目录
 
 ```bash
-cd ~/.openclaw/workspace/skills
-git clone https://github.com/dztabel-happy/claude-code-agent.git
+export OPENCLAW_SKILLS_DIR="${OPENCLAW_SKILLS_DIR:-$HOME/.openclaw/skills}"
+mkdir -p "$OPENCLAW_SKILLS_DIR"
+git clone https://github.com/dztabel-happy/claude-code-agent.git "$OPENCLAW_SKILLS_DIR/claude-code-agent"
 ```
 
-或手工复制到：
+### 方案 B：workspace 内 skill 目录
 
 ```bash
-~/.openclaw/workspace/skills/claude-code-agent
+mkdir -p "$HOME/.openclaw/workspace/skills"
+git clone https://github.com/dztabel-happy/claude-code-agent.git "$HOME/.openclaw/workspace/skills/claude-code-agent"
+```
+
+建议随后固定一个环境变量，后面所有命令都用它：
+
+```bash
+export CLAUDE_CODE_AGENT_DIR="$(cd "$HOME/.openclaw/skills/claude-code-agent" 2>/dev/null || cd "$HOME/.openclaw/workspace/skills/claude-code-agent" && pwd)"
 ```
 
 验证：
 
 ```bash
-ls ~/.openclaw/workspace/skills/claude-code-agent/SKILL.md
+ls "$CLAUDE_CODE_AGENT_DIR/SKILL.md"
 ```
 
 ## 第二步：给脚本加执行权限
 
 ```bash
-cd ~/.openclaw/workspace/skills/claude-code-agent
+cd "$CLAUDE_CODE_AGENT_DIR"
 chmod +x hooks/*.sh runtime/*.sh tests/regression.sh
 ```
 
-## 第三步：配置 OpenClaw 通知默认值
+## 第三步：配置 OpenClaw 默认通知目标
 
 这一步不是 Claude hooks 配置，而是托管 wrappers 在需要给用户发消息、唤醒 OpenClaw 时使用的默认路由信息。
 
@@ -73,7 +85,7 @@ source ~/.zshrc
 ## 第四步：跑回归测试
 
 ```bash
-cd ~/.openclaw/workspace/skills/claude-code-agent
+cd "$CLAUDE_CODE_AGENT_DIR"
 bash tests/regression.sh
 ```
 
@@ -85,7 +97,7 @@ bash tests/regression.sh
 
 ```bash
 mkdir -p /tmp/claude-code-agent-test
-bash runtime/start_local_claude.sh /tmp/claude-code-agent-test --permission-mode plan
+bash "$CLAUDE_CODE_AGENT_DIR/runtime/start_local_claude.sh" /tmp/claude-code-agent-test --permission-mode plan
 ```
 
 在 Claude 里输入一条简单消息，例如：
@@ -97,8 +109,8 @@ Reply with exactly: HANDOFF_READY
 退出 attach 后，另开终端：
 
 ```bash
-bash runtime/list_sessions.sh
-bash runtime/session_status.sh claude-claude-code-agent-test
+bash "$CLAUDE_CODE_AGENT_DIR/runtime/list_sessions.sh"
+bash "$CLAUDE_CODE_AGENT_DIR/runtime/session_status.sh" claude-claude-code-agent-test
 ```
 
 你应当看到：
@@ -110,8 +122,8 @@ bash runtime/session_status.sh claude-claude-code-agent-test
 ### 方式 B：接管同一会话
 
 ```bash
-bash runtime/takeover.sh claude-claude-code-agent-test
-bash runtime/session_status.sh claude-claude-code-agent-test
+bash "$CLAUDE_CODE_AGENT_DIR/runtime/takeover.sh" claude-claude-code-agent-test
+bash "$CLAUDE_CODE_AGENT_DIR/runtime/session_status.sh" claude-claude-code-agent-test
 ```
 
 你应当看到：
@@ -123,57 +135,59 @@ bash runtime/session_status.sh claude-claude-code-agent-test
 ### 方式 C：归还本地
 
 ```bash
-bash runtime/reclaim.sh claude-claude-code-agent-test
+bash "$CLAUDE_CODE_AGENT_DIR/runtime/reclaim.sh" claude-claude-code-agent-test
 ```
 
-## 现在不再是必需项的旧步骤
+## 当前推荐的使用方式
 
-### 1. 全局修改 `~/.claude/settings.json`
-
-对于本项目的托管会话，这已经不是必须步骤。
-
-原因：
-
-- wrappers 会自动通过 `--settings` 注入托管 hooks
-- 这样不会污染用户所有 Claude 会话
-
-如果你**想**让裸跑 `claude` 也带上这些 hooks，可以参考 `hooks/hooks_config.json` 手工合并，但这已经属于可选方案。
-
-### 2. 强制关闭 OpenClaw session reset
-
-旧版安装建议要求几乎关闭 OpenClaw 的 session reset。
-
-升级后不再把它当成硬性前提，原因是：
-
-- 每个托管 Claude 会话现在都有独立 `openclaw session-id`
-- 不再共享 agent `main` 对话上下文
-
-如果你有超长生命周期的审阅流，仍然可以根据自己习惯调整 OpenClaw 的 session policy，但这不应再被视作“安装阻塞项”。
-
-## 常用使用方式
-
-### 让 OpenClaw 直接新建托管会话
-
-你可以对 OpenClaw 说：
-
-- “用 Claude Code 帮我在 `/path/to/project` 做 XX”
-- “用 Claude Code 帮我分析这段日志”
-- “用 Claude Code 帮我实现并验证一个功能”
-
-### 手工启动托管会话
+### 默认单次任务
 
 ```bash
-bash hooks/start_claude.sh claude-demo /path/to/project --permission-mode acceptEdits
+bash "$CLAUDE_CODE_AGENT_DIR/hooks/run_claude.sh" /path/to/project \
+  -p --permission-mode acceptEdits "Analyze the repo and summarize the architecture."
+```
+
+### 默认交互式任务
+
+```bash
+bash "$CLAUDE_CODE_AGENT_DIR/hooks/start_claude.sh" claude-demo /path/to/project \
+  --permission-mode acceptEdits
 tmux attach -t claude-demo
 ```
 
-### 一次性执行
+### 显式启用 Agent Teams
+
+Agent Teams 不再默认注入。只有确实需要并行任务时才显式开启：
 
 ```bash
-bash hooks/run_claude.sh /path/to/project -p --model sonnet "Analyze the repo and summarize the architecture."
+bash "$CLAUDE_CODE_AGENT_DIR/hooks/start_claude.sh" claude-team /path/to/project \
+  --permission-mode acceptEdits \
+  --agent-teams
 ```
 
-## 排障
+### 高风险模式
+
+`--dangerously-skip-permissions` 只建议在用户明确授权、且环境隔离可信时使用：
+
+```bash
+bash "$CLAUDE_CODE_AGENT_DIR/hooks/start_claude.sh" claude-isolated /path/to/project \
+  --dangerously-skip-permissions
+```
+
+## 可选：让裸跑 `claude` 也挂 hooks
+
+这不是托管会话的必需步骤，只在你明确希望“裸 Claude 会话也带这些 hooks”时才做。
+
+1. 打开 [hooks/hooks_config.json](hooks/hooks_config.json)
+2. 把里面的 `__SKILL_DIR__` 全部替换成真实绝对路径
+3. 再合并进你的 Claude settings
+
+注意：
+
+- 这个模板不再假设固定安装在 `~/.openclaw/workspace/skills/...`
+- 模板默认不会自动打开 Agent Teams
+
+## 常见排障
 
 ### `claude auth status` 正常，但真实请求卡住
 
@@ -183,18 +197,18 @@ bash hooks/run_claude.sh /path/to/project -p --model sonnet "Analyze the repo an
 claude -p --model haiku --max-turns 1 "Reply with exactly: OK"
 ```
 
-如果这里都不通，优先修 Claude 自身环境，不要先怀疑本项目。
+如果这里不通，先修 Claude 自身环境。
 
 ### 看托管会话状态
 
 ```bash
-bash runtime/list_sessions.sh
-bash runtime/session_status.sh <selector>
+bash "$CLAUDE_CODE_AGENT_DIR/runtime/list_sessions.sh"
+bash "$CLAUDE_CODE_AGENT_DIR/runtime/session_status.sh" <selector>
 ```
 
-### 看是不是被路由到了独立 OpenClaw session
+### 确认是否路由到独立 OpenClaw session
 
-`runtime/session_status.sh` 里应能看到：
+`session_status.sh` 里应看到：
 
 ```text
 oc_session: claude-code-agent-...
@@ -202,11 +216,4 @@ oc_session: claude-code-agent-...
 
 ### hooks 没反应
 
-先确认你是不是通过 wrapper 启动的托管会话，而不是手工裸跑 `claude`。
-
-再检查：
-
-```bash
-claude --version
-bash runtime/session_status.sh <selector>
-```
+先确认当前会话是不是通过本项目 wrapper 启动的托管会话，而不是手工裸跑的 `claude`。

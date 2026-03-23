@@ -11,13 +11,12 @@ claude "prompt"
 claude -p "prompt"
 claude -c
 claude -r "<session-id>"
-claude update
-claude install
-claude auth status
 claude agents
 claude mcp list
 claude plugin --help
 claude remote-control --help
+claude update
+claude install
 ```
 
 ## 高价值 flag 组合
@@ -57,14 +56,14 @@ claude -r "<session-id>" --fork-session "next step"
 -c, --continue
 -r, --resume
 --fork-session
---session-id <id>
+--session-id <uuid>
 -n, --name <name>
 --max-turns <n>
 --max-budget-usd <n>
 --no-session-persistence
 ```
 
-### 模型与推理
+### 模型、提示与 agents
 
 ```bash
 --model <model>
@@ -72,6 +71,9 @@ claude -r "<session-id>" --fork-session "next step"
 --effort <low|medium|high|max>
 --system-prompt <text>
 --append-system-prompt <text>
+--agent <agent>
+--agents <json>
+--json-schema <schema>
 ```
 
 ### 配置与扩展
@@ -105,31 +107,20 @@ claude -r "<session-id>" --fork-session "next step"
 --tools "Read,Edit,Bash"
 ```
 
-### 流式输入输出
-
-```bash
---output-format text|json|stream-json
---input-format text|stream-json
---include-partial-messages
---replay-user-messages
-```
-
-## 常用 slash commands
-
-```text
-/help
-/config
-/permissions
-/hooks
-/model
-/compact
-/clear
-/add-dir
-/exit
-```
-
 ## 当前对本项目最重要的认识
 
 - 托管会话优先依赖 wrapper 动态注入 `--settings`
-- 不再把“托管 hooks 可用”建立在全局 `~/.claude/settings.json` 修改之上
-- OpenClaw 侧应该显式使用 `--session-id` 做一对一路由，而不是只依赖 `--agent main`
+- 默认不再把 Agent Teams 作为所有托管会话的前提
+- `--dangerously-skip-permissions` 只适合明确授权、隔离可信的场景
+- OpenClaw 侧应显式使用 `--session-id` 做一对一路由，而不是只依赖 `--agent main`
+
+## 本项目 wrapper 额外约定
+
+这些不是 Claude 原生命令，而是本 repo 的 wrapper 约定：
+
+```bash
+hooks/start_claude.sh ... --agent-teams
+hooks/run_claude.sh ... --agent-teams
+```
+
+含义：只有显式传入时，wrapper 才会为 Claude 注入 Agent Teams 相关 env 与 hooks。

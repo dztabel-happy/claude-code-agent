@@ -25,7 +25,7 @@ OpenClaw 复核结果、继续推进或汇报
 1. 这是一次性任务，还是多轮任务？
 2. 是否需要隔离 worktree？
 3. 是否需要浏览器？
-4. 是否需要 Agent Teams？
+4. 是否真的值得开启 Agent Teams？
 5. 需要多高的 effort？
 6. 权限模式是否应保守？
 
@@ -49,6 +49,11 @@ OpenClaw 复核结果、继续推进或汇报
 - 离开时 `runtime/takeover.sh`
 - 回来时 `runtime/reclaim.sh`
 
+### 并行任务
+
+- 只有在任务天然可拆分时才显式启用 `--agent-teams`
+- 不把 Agent Teams 当默认值
+
 ## 监督原则
 
 - 先查 runtime registry，再等 hook 唤醒
@@ -61,6 +66,7 @@ OpenClaw 复核结果、继续推进或汇报
 - 每个 Claude 托管会话都应有独立 `openclaw session-id`
 - 不要把多个 Claude 会话都路由到 OpenClaw agent 的同一条 `main` 对话上下文
 - 不要要求用户为了托管会话去全局改 `~/.claude/settings.json`
+- 不要把 Agent Teams 和危险权限当作默认流程
 
 ## 汇报前检查
 

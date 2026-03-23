@@ -120,6 +120,7 @@ session_store_write_json() {
 session_store_write_managed_settings() {
     local session_key="${1:?session key required}"
     local skill_dir="${2:?skill dir required}"
+    local agent_teams_enabled="${OPENCLAW_ENABLE_AGENT_TEAMS:-0}"
     local file
     local tmp
     local json
@@ -134,10 +135,8 @@ session_store_write_managed_settings() {
         --arg permission_cmd "bash \"$skill_dir/hooks/on_permission_request.sh\"" \
         --arg teammate_cmd "bash \"$skill_dir/hooks/on_teammate_idle.sh\"" \
         --arg task_cmd "bash \"$skill_dir/hooks/on_task_completed.sh\"" \
+        --arg agent_teams_enabled "$agent_teams_enabled" \
         '{
-            env: {
-                CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"
-            },
             hooks: {
                 Stop: [
                     {
@@ -173,31 +172,38 @@ session_store_write_managed_settings() {
                             }
                         ]
                     }
-                ],
-                TeammateIdle: [
-                    {
-                        hooks: [
-                            {
-                                type: "command",
-                                command: $teammate_cmd,
-                                timeout: 15
-                            }
-                        ]
-                    }
-                ],
-                TaskCompleted: [
-                    {
-                        hooks: [
-                            {
-                                type: "command",
-                                command: $task_cmd,
-                                timeout: 600
-                            }
-                        ]
-                    }
                 ]
             }
-        }') || return 1
+        }
+        | if $agent_teams_enabled == "1" then
+            .env = {
+                CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"
+            }
+            | .hooks.TeammateIdle = [
+                {
+                    hooks: [
+                        {
+                            type: "command",
+                            command: $teammate_cmd,
+                            timeout: 15
+                        }
+                    ]
+                }
+            ]
+            | .hooks.TaskCompleted = [
+                {
+                    hooks: [
+                        {
+                            type: "command",
+                            command: $task_cmd,
+                            timeout: 600
+                        }
+                    ]
+                }
+            ]
+          else
+            .
+          end') || return 1
 
     printf '%s\n' "$json" > "$tmp"
     mv "$tmp" "$file"

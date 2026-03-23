@@ -11,6 +11,19 @@ source "$SCRIPT_DIR/session_store.sh"
 INCLUDE_STOPPED=0
 JSON_OUTPUT=0
 
+print_help() {
+    cat <<EOF
+Usage: $0 [--all] [--json]
+
+List managed Claude sessions from the local runtime store.
+
+Options:
+  --all       Include stopped sessions
+  --json      Print machine-readable JSON
+  -h, --help  Show this help
+EOF
+}
+
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --all)
@@ -22,7 +35,7 @@ while [ "$#" -gt 0 ]; do
             shift
             ;;
         --help|-h)
-            echo "Usage: $0 [--all] [--json]"
+            print_help
             exit 0
             ;;
         *)

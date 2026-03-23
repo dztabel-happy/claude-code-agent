@@ -2,60 +2,39 @@
 
 **English** | [中文](README_ZH.md)
 
-`claude-code-agent` is an OpenClaw skill that turns Claude Code into a managed runtime instead of a terminal session that someone has to babysit manually.
+`claude-code-agent` is an OpenClaw skill that turns Claude Code into a managed runtime instead of an unattended terminal session.
 
-It adds the operational pieces OpenClaw needs in practice:
+It adds the control plane OpenClaw needs:
 
-- wrapper-launched Claude sessions instead of unmanaged `claude` processes
+- wrapper-launched Claude sessions
 - per-session metadata and routing
 - hook-driven wakeups back into OpenClaw
 - local-to-OpenClaw handoff and reclaim
 - tmux visibility when a human needs to step in
 
-This repository is mainly for people who want OpenClaw to drive Claude Code as a worker. If you only use Claude Code directly, you probably do not need it.
+## What This Project Is
 
-## Why This Exists
+This repository is for people who want OpenClaw to supervise Claude Code as a worker.
 
-Claude Code already has strong native capabilities. What it does not provide by itself is a clean control plane for a supervisor such as OpenClaw.
+It is **not** a replacement for Claude Code itself, and it does not try to manage arbitrary user-started `claude` sessions.
 
-This project fills that gap by providing:
+## Design Goals
 
-- a managed session wrapper around Claude Code
-- runtime-generated `--settings` overlays for hooks
-- explicit per-session `openclaw session-id` routing
-- session inspection and handoff scripts
-- a conservative approval layer for Bash permission requests
+- Managed sessions should not require editing global `~/.claude/settings.json`
+- Each managed Claude session should map to its own OpenClaw session ID
+- Default workflows should stay simple
+- Experimental features should be explicit opt-ins
+- Permission automation should stay conservative
 
-The goal is straightforward: let OpenClaw keep the right Claude session moving without mixing projects, depending on hand-edited global config, or losing the option to inspect the live terminal.
-
-## What It Does
-
-- Starts managed interactive Claude sessions in `tmux`
-- Runs one-shot Claude print jobs through the same managed runtime
-- Tracks session state in a local runtime store
-- Wakes OpenClaw on Claude lifecycle events
-- Supports local-first sessions that can be handed off later
-- Adds a `PermissionRequest(Bash)` hook for narrow auto-allow and auto-deny cases
-- Supports optional quality gates on `TaskCompleted`
-
-## Design Choices
-
-- Managed sessions do not require editing global `~/.claude/settings.json`
-- Hooks are injected at runtime with `--settings`
-- Each managed Claude session gets its own deterministic OpenClaw session ID
-- Only wrapper-launched sessions are managed
-- The system stays inspectable through `tmux attach`
-- Permission automation is intentionally conservative
-
-## Runtime Model
+## Current Runtime Model
 
 There are three layers:
 
-1. Claude Code executes the work.
-2. The wrappers and hooks in this repo handle session state, routing, and lifecycle events.
-3. OpenClaw decides strategy, sends follow-up instructions, and reacts to hook wakeups.
+1. Claude Code executes the actual work.
+2. This repo provides wrappers, session state, hooks, and routing.
+3. OpenClaw decides strategy and reacts to hook wakeups.
 
-Important session fields:
+The important managed-session fields are:
 
 - `session_key`
 - `project_label`
@@ -64,6 +43,7 @@ Important session fields:
 - `openclaw_session_id`
 - `permission_mode`
 - `permission_policy`
+- `agent_teams_enabled`
 
 ## Key Features
 
@@ -81,29 +61,36 @@ Important session fields:
 
 ### Hook integration
 
-The managed overlay wires in these Claude hooks:
+Always-on managed hooks:
 
 - `Stop`
 - `Notification`
 - `PermissionRequest(Bash)`
+
+Opt-in hooks when Agent Teams is enabled:
+
 - `TeammateIdle`
 - `TaskCompleted`
 
 ### Approval chain
 
-The current approval layer is deliberately small in scope:
+The current approval layer is intentionally narrow:
 
 - clearly safe read-only or verification-style Bash commands can be auto-allowed
-- obviously dangerous Bash commands can be auto-denied
+- clearly dangerous Bash commands can be auto-denied
 - everything else falls back to Claude's normal permission flow
 
-This reduces approval friction without pretending that all shell requests are safe to automate.
+## Simpler Defaults
+
+- Prefer `run_claude.sh` for one-shot tasks
+- Prefer `--permission-mode acceptEdits` for normal trusted repos
+- Prefer `--permission-mode plan` for read-only analysis
+- Treat `--dangerously-skip-permissions` as a special-case escape hatch
+- Keep Agent Teams off unless you explicitly pass `--agent-teams`
 
 ## Quick Start
 
 See [INSTALL.md](INSTALL.md) for setup details.
-
-Common entry points:
 
 ### Start a managed interactive session
 
@@ -126,6 +113,23 @@ bash runtime/reclaim.sh my-project
 bash hooks/run_claude.sh /path/to/project -p --model sonnet "Analyze the repository and summarize the architecture."
 ```
 
+### Enable Agent Teams explicitly
+
+```bash
+bash hooks/start_claude.sh claude-team /path/to/project --permission-mode acceptEdits --agent-teams
+```
+
+## Installation Notes
+
+This project can live in either:
+
+- `~/.openclaw/skills/claude-code-agent` for a managed shared skill
+- `~/.openclaw/workspace/skills/claude-code-agent` for a workspace-local clone
+
+The wrappers do not depend on a hard-coded install path.
+
+If you want optional global Claude hooks for unmanaged sessions, use [hooks/hooks_config.json](hooks/hooks_config.json) as a template and replace `__SKILL_DIR__` with the real absolute path first.
+
 ## Repository Layout
 
 | Path | Purpose |
@@ -134,19 +138,6 @@ bash hooks/run_claude.sh /path/to/project -p --model sonnet "Analyze the reposit
 | `runtime/` | session store, handoff, reclaim, and inspection scripts |
 | `tests/` | regression coverage |
 | `knowledge/` | reference notes used to maintain the skill |
-
-## Main Scripts
-
-| Script | Purpose |
-|------|---------|
-| `hooks/start_claude.sh` | start an interactive managed Claude session |
-| `hooks/run_claude.sh` | run a managed print-mode Claude invocation |
-| `hooks/stop_claude.sh` | stop a managed session |
-| `runtime/start_local_claude.sh` | start a local-first session that can later be handed off |
-| `runtime/takeover.sh` | transfer control of a managed session to OpenClaw |
-| `runtime/reclaim.sh` | return a session to local control |
-| `runtime/list_sessions.sh` | list managed sessions |
-| `runtime/session_status.sh` | inspect session metadata |
 
 ## Requirements
 
@@ -164,7 +155,7 @@ bash tests/regression.sh
 ## Status
 
 - Latest release tag: `v0.2.0`
-- `main` currently contains post-release work for the `PermissionRequest` approval chain
+- `main` currently contains post-release simplification work
 - Compatibility baseline:
   - OpenClaw `2026.3.11+`
   - Claude Code `2.1.80+`
@@ -174,9 +165,9 @@ For release history, see [CHANGELOG.md](CHANGELOG.md).
 ## Non-Goals
 
 - replacing Claude Code itself
-- managing arbitrary user-started `claude` sessions
-- silently mutating every global Claude config on the machine
+- silently mutating every user's global Claude config
 - auto-approving all shell access
+- enabling experimental team features for every managed session by default
 
 ## Documentation
 

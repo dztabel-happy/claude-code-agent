@@ -8,6 +8,27 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/../runtime/session_store.sh"
 
+print_help() {
+    cat <<EOF
+Usage: $0 <selector>
+
+Stop a managed Claude tmux session and mark it as stopped in the runtime store.
+
+Examples:
+  $0 my-project
+  $0 claude-demo
+  $0 /abs/path/to/project
+
+Selector resolution order:
+  session_key -> tmux_session -> full cwd -> unique project_label -> unique cwd basename
+EOF
+}
+
+if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+    print_help
+    exit 0
+fi
+
 SELECTOR="${1:?Usage: $0 <session-key|tmux-session|project-label|cwd>}"
 set +e
 SESSION_KEY="$(session_store_resolve_selector_checked "$SELECTOR")"
