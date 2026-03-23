@@ -18,6 +18,20 @@ This repository is for people who want OpenClaw to supervise Claude Code as a wo
 
 It is **not** a replacement for Claude Code itself, and it does not try to manage arbitrary user-started `claude` sessions.
 
+## OpenClaw's Role
+
+In this skill, OpenClaw should behave more like a project manager than a simple relay.
+
+That means OpenClaw should:
+
+- understand the user's real goal and constraints
+- turn rough user language into a better Claude Code prompt
+- choose the right execution mode, model, and permission strategy
+- supervise progress through hook wakeups
+- verify the result before reporting back
+
+Claude Code is the execution expert. OpenClaw is the orchestrator.
+
 ## How You Actually Use It
 
 For normal day-to-day use, you do **not** manually run the wrapper scripts first.

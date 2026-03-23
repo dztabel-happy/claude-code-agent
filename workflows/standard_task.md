@@ -5,13 +5,21 @@
 ```text
 用户下任务
     ↓
-理解需求与验收标准
+先判断：这是新任务还是会话控制
+    ↓
+如果是会话控制，优先 runtime/control_session.sh
+    ↓
+如果是新任务：理解需求与验收标准
     ↓
 读取 capabilities / features / prompting patterns
+    ↓
+判断任务模式（分析 / 修复 / review / 调研 / 文档）
     ↓
 选择模型、effort、会话模式、权限模式
     ↓
 设计提示词
+    ↓
+定义验证动作与输出要求
     ↓
 启动托管 Claude 会话
     ↓
@@ -23,11 +31,12 @@ OpenClaw 复核结果、继续推进或汇报
 ## 决策顺序
 
 1. 这是一次性任务，还是多轮任务？
-2. 是否需要隔离 worktree？
-3. 是否需要浏览器？
-4. 是否真的值得开启 Agent Teams？
-5. 需要多高的 effort？
-6. 权限模式是否应保守？
+2. 这是分析、修复、review、调研还是会话控制？
+3. 是否需要隔离 worktree？
+4. 是否需要浏览器？
+5. 是否真的值得开启 Agent Teams？
+6. 需要多高的 effort？
+7. 权限模式是否应保守？
 
 ## 启动原则
 
@@ -49,12 +58,22 @@ OpenClaw 复核结果、继续推进或汇报
 - 离开时 `runtime/takeover.sh`
 - 回来时 `runtime/reclaim.sh`
 
+### 会话控制
+
+- 优先 `runtime/control_session.sh`
+- 能自动唯一匹配时不要求用户再给 selector
+- 有歧义时再追问，不要猜
+
 ### 并行任务
 
 - 只有在任务天然可拆分时才显式启用 `--agent-teams`
 - 不把 Agent Teams 当默认值
 
 ## 监督原则
+
+- OpenClaw 是项目经理，不是原话转发器
+- Claude 返回内容后，先看是否达到任务卡要求
+- 验收不通过时继续推进，不要过早向用户宣布完成
 
 - 先查 runtime registry，再等 hook 唤醒
 - 只处理托管会话

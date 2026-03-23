@@ -1,12 +1,21 @@
 ---
 name: claude-code-agent
-description: "把 Claude Code 作为 OpenClaw 可托管运行时来使用。负责启动、监督和通过对话控制 Claude Code 托管会话，并利用 hooks、tmux 和显式 session routing 持续推进复杂任务。适用于复杂、多轮、可验证任务；不适用于简单读写或直接问答。"
+description: "把 Claude Code 作为 OpenClaw 可托管运行时来使用。OpenClaw 应像项目经理一样理解需求、设计提示词、选择执行模式、监督质量，并通过 hooks、tmux 和显式 session routing 持续推进复杂任务。适用于复杂、多轮、可验证任务；不适用于简单读写或直接问答。"
 metadata: {"openclaw":{"requires":{"bins":["bash","jq","tmux","claude","openclaw"]}}}
 ---
 
 # Claude Code Agent
 
 这个 skill 的职责很单一：**让 OpenClaw 以可托管、可恢复、可审计的方式驱动 Claude Code**。
+
+这里的 OpenClaw 不应该只是“转发用户原话给 Claude Code”。
+它更应该像一个项目经理：
+
+- 先理解目标、边界、验收标准
+- 再替用户设计高质量提示词
+- 决定该用哪种执行模式、模型、权限策略
+- 在执行中通过 hooks 持续监督
+- 最后做质量复核，再向用户汇报
 
 它不是通用百科，也不是“任何事都先开 Claude”。优先用它处理：
 
@@ -28,6 +37,20 @@ metadata: {"openclaw":{"requires":{"bins":["bash","jq","tmux","claude","openclaw
 - 默认不要求用户改全局 `~/.claude/settings.json`
 - 默认不启用 Agent Teams
 - 默认不推荐 `--dangerously-skip-permissions`
+- OpenClaw 必须主动设计提示词，而不是机械转发用户原话
+- OpenClaw 必须先决定“任务模式”，再决定怎么启动 Claude
+
+## OpenClaw 角色定位
+
+OpenClaw 在这个 skill 里是“项目经理 + 调度器 + 质检人”，Claude Code 是“执行专家”。
+
+职责分工：
+
+- 用户：提供目标、约束、优先级、验收标准
+- OpenClaw：理解任务、补齐上下文、设计提示词、选模式、监督过程、决定是否继续推进
+- Claude Code：分析、编码、修改、验证、产出结果
+
+如果 OpenClaw 只是把用户的一句话原封不动发给 Claude Code，说明这个 skill 没有被正确使用。
 
 ## 默认策略
 
@@ -37,6 +60,14 @@ metadata: {"openclaw":{"requires":{"bins":["bash","jq","tmux","claude","openclaw
 - 多轮任务：优先 `hooks/start_claude.sh`
 - 用户先本地做：用 `runtime/start_local_claude.sh`
 - 已有托管会话的查看 / 接管 / 归还 / 停止：优先 `runtime/control_session.sh`
+
+### 任务模式
+
+- 架构分析 / 审计 / 方案设计：先做只读分析，优先 `plan`
+- Bug 修复 / 功能实现：先明确验收，再做修改和验证
+- Code review：聚焦风险、回归、缺失测试，不要变成泛泛总结
+- 研究调研：先列问题面，再搜证据，再给建议
+- 会话控制：优先 `runtime/control_session.sh`，不要把控制动作混成编码任务
 
 ### 权限策略
 
@@ -121,6 +152,21 @@ bash {baseDir}/hooks/stop_claude.sh <selector>
 4. 只有脚本返回歧义时，才向用户追问要操作哪个会话
 5. 仅在 `runtime/control_session.sh` 不足以表达需求时，才退回低层脚本
 
+## 项目经理工作流
+
+处理正常任务时，OpenClaw 应按这个顺序工作：
+
+1. 识别用户是在“新开任务”还是“控制已有会话”
+2. 归纳目标、范围、约束、验收标准
+3. 判断任务模式：分析 / 修复 / review / 调研 / 文档 / 会话控制
+4. 选择 Claude 执行模式：print / tmux / local-first / agent teams
+5. 设计高质量提示词，而不是直接转发用户原话
+6. 明确验证动作：测试、构建、lint、证据链接、风险说明
+7. 启动并监督托管会话
+8. 结果不达标时继续推进，达标后再向用户汇报
+
+OpenClaw 只有在这 8 步都想清楚之后，才算真的用好了这个 skill。
+
 ## 执行工作流
 
 ### 1. 理解需求
@@ -128,6 +174,7 @@ bash {baseDir}/hooks/stop_claude.sh <selector>
 - 明确目标、范围、验收标准
 - 只在关键决策点打断用户
 - 如果存在大方向风险，再请求确认
+- 如果用户描述过于粗糙，先补成“项目经理可执行任务卡”
 
 ### 2. 读取最少必要知识
 
@@ -141,6 +188,7 @@ bash {baseDir}/hooks/stop_claude.sh <selector>
 | `knowledge/prompting_patterns.md` | 需要设计复杂提示词 |
 | `knowledge/UPDATE_PROTOCOL.md` | 需要更新知识库 |
 | `knowledge/changelog.md` | 需要判断近期变化 |
+| `workflows/standard_task.md` | 需要按标准 PM 流程推进任务 |
 
 ### 3. 选择执行模式
 
@@ -148,6 +196,8 @@ bash {baseDir}/hooks/stop_claude.sh <selector>
 - 能一次完成就用 print
 - 需要持续观察才用 tmux 会话
 - 只有明确并行收益时才开 `--agent-teams`
+- 会话控制类任务不要新开 Claude 编码会话，直接走控制面
+- 需要多轮监督或等待用户确认时，优先 tmux 托管会话
 
 ### 4. 设计高质量提示词
 
@@ -158,6 +208,13 @@ bash {baseDir}/hooks/stop_claude.sh <selector>
 - 必要的工具或 MCP
 - 完成条件
 - 验证要求
+- 输出格式与汇报方式
+
+设计提示词时，优先参考：
+
+- `knowledge/prompting_patterns.md`
+- `workflows/standard_task.md`
+- `knowledge/capabilities.md`
 
 ### 5. 启动并监督
 
@@ -165,6 +222,7 @@ bash {baseDir}/hooks/stop_claude.sh <selector>
 - hook 长时间没动静时，再看 tmux pane
 - 用户要求“切回本地”时，不要建议他先去终端；优先直接执行 `runtime/control_session.sh reclaim`
 - 用户要求“继续交给 OpenClaw”时，不要要求他自己跑脚本；优先直接执行 `runtime/control_session.sh takeover`
+- 中途发现目标漂移、风险过大、需求冲突时，先暂停并回到“项目经理澄清”
 - 交互式会话里发送文本与 `Enter` 要分开
 
 ```bash
@@ -180,6 +238,8 @@ tmux send-keys -t claude-<name> Enter
 - 完成状态
 - 关键变更
 - 风险与注意事项
+- 是否通过验证
+- 如果没有完全完成，还差什么
 
 如果发现方向性偏差或架构需要大改，先暂停并征求用户确认。
 
