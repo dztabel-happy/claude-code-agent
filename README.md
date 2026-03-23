@@ -1,115 +1,61 @@
 # Claude Code Agent
 
-**[English](README_EN.md)** | 中文
+**English** | [中文](README_ZH.md)
 
-让 OpenClaw 像资深操作者一样驱动 Claude Code，而且这次升级后更像一个稳定的“托管层”，不再只是 tmux 小技巧集合。
+`claude-code-agent` is an OpenClaw skill that turns Claude Code into a managed runtime instead of a terminal session that someone has to babysit manually.
 
-> 当前发布：`v0.2.0`
-> 兼容基线：OpenClaw `2026.3.11+`，Claude Code `2.1.80+`
+It adds the operational pieces OpenClaw needs in practice:
 
-## 它是什么
+- wrapper-launched Claude sessions instead of unmanaged `claude` processes
+- per-session metadata and routing
+- hook-driven wakeups back into OpenClaw
+- local-to-OpenClaw handoff and reclaim
+- tmux visibility when a human needs to step in
 
-这是一个专门给 OpenClaw 使用的 skill。它把 Claude Code 包成托管会话，让 OpenClaw 可以：
+This repository is mainly for people who want OpenClaw to drive Claude Code as a worker. If you only use Claude Code directly, you probably do not need it.
 
-- 设计更强的提示词
-- 选择合适的模型、effort、权限模式
-- 在 tmux 中持续监督 Claude Code
-- 通过 Claude 原生 hooks 感知回复、审批等待和 Agent Teams 状态
-- 在用户离开电脑时接手，在用户回来时归还控制
+## Why This Exists
 
-## 这次升级后的关键变化
+Claude Code already has strong native capabilities. What it does not provide by itself is a clean control plane for a supervisor such as OpenClaw.
 
-### 1. 不再默认要求全局改 `~/.claude/settings.json`
+This project fills that gap by providing:
 
-托管 wrappers 现在会在每次启动时自动生成 Claude managed settings overlay，并通过 `--settings` 注入当前会话。
+- a managed session wrapper around Claude Code
+- runtime-generated `--settings` overlays for hooks
+- explicit per-session `openclaw session-id` routing
+- session inspection and handoff scripts
+- a conservative approval layer for Bash permission requests
 
-这意味着：
+The goal is straightforward: let OpenClaw keep the right Claude session moving without mixing projects, depending on hand-edited global config, or losing the option to inspect the live terminal.
 
-- 托管会话不再依赖用户手工合并 hooks
-- 裸跑 `claude` 不会被意外接管
-- skill 的行为更可移植、更可预测
+## What It Does
 
-### 2. 每个 Claude 托管会话都有独立 OpenClaw session
+- Starts managed interactive Claude sessions in `tmux`
+- Runs one-shot Claude print jobs through the same managed runtime
+- Tracks session state in a local runtime store
+- Wakes OpenClaw on Claude lifecycle events
+- Supports local-first sessions that can be handed off later
+- Adds a `PermissionRequest(Bash)` hook for narrow auto-allow and auto-deny cases
+- Supports optional quality gates on `TaskCompleted`
 
-之前最危险的设计缺陷是：多个 Claude 会话可能都唤醒到同一个 OpenClaw agent 主会话。
+## Design Choices
 
-现在的行为是：
+- Managed sessions do not require editing global `~/.claude/settings.json`
+- Hooks are injected at runtime with `--settings`
+- Each managed Claude session gets its own deterministic OpenClaw session ID
+- Only wrapper-launched sessions are managed
+- The system stays inspectable through `tmux attach`
+- Permission automation is intentionally conservative
 
-- 每个 Claude 托管会话都有独立的 `openclaw session-id`
-- hook 唤醒使用显式 `openclaw agent --session-id ...`
-- 多项目不会再轻易串上下文
+## Runtime Model
 
-### 3. 知识库同步到当前 Claude Code CLI
+There are three layers:
 
-本仓库的知识库已经同步到：
+1. Claude Code executes the work.
+2. The wrappers and hooks in this repo handle session state, routing, and lifecycle events.
+3. OpenClaw decides strategy, sends follow-up instructions, and reacts to hook wakeups.
 
-- 本机 Claude Code：`2.1.80`
-- 查询时 npm 最新：`2.1.81`
-
-补齐了这些新能力认知：
-
-- `--settings`
-- `--setting-sources`
-- `--session-id`
-- `--effort`
-- `--plugin-dir`
-- `--ide`
-- `--no-session-persistence`
-- `permission-mode auto`
-
-## v0.2.0 亮点
-
-- 托管 Claude 会话不再共享同一条 OpenClaw agent 主对话
-- wrappers 会自动注入 Claude managed settings overlay
-- 文档和知识库改成“官方文档 + 本机 CLI 自省”双路径维护
-- 回归测试开始覆盖托管路由与 settings 注入这种架构级行为
-
-## 当前主线继续升级中
-
-`v0.2.0` 发布之后，主线已经继续向前推进：
-
-- 托管 overlay 开始接入 `PermissionRequest(Bash)` hook
-- OpenClaw 接管后的默认 `permission_policy` 会切到 `safe`
-- 一小部分明确安全的 Bash 读操作/检查命令会被自动批准，并写入当前 session 级 permissions
-- 明显危险的 Bash 请求会在权限弹窗前被自动拒绝并唤醒 OpenClaw
-
-这意味着“Claude 卡在审批里，OpenClaw 还得靠 tmux 人眼进场点 Yes/No”的频率会进一步下降。
-
-## 工作原理
-
-本项目的核心是三层：
-
-### Claude Code
-
-- 真正执行任务
-- 提供 hooks、MCP、worktree、Agent Teams 等能力
-
-### 托管 wrappers
-
-- `hooks/start_claude.sh`
-- `hooks/run_claude.sh`
-- `runtime/start_local_claude.sh`
-
-它们负责：
-
-- 生成 session metadata
-- 注入 managed settings overlay
-- 建立 OpenClaw 与 Claude 的托管边界
-
-### OpenClaw
-
-- 理解用户任务
-- 设计提示词与策略
-- 响应 hook 唤醒
-- 在正确的托管会话里继续推进任务
-
-## 托管会话模型
-
-- **裸会话**：用户直接运行 `claude`，本项目不接管
-- **OpenClaw 托管会话**：由 wrapper 启动，`controller=openclaw`
-- **本地托管会话**：由 `runtime/start_local_claude.sh` 启动，初始 `controller=local`
-
-多会话管理的关键字段：
+Important session fields:
 
 - `session_key`
 - `project_label`
@@ -119,70 +65,123 @@
 - `permission_mode`
 - `permission_policy`
 
-## 主要脚本
+## Key Features
 
-| 脚本 | 作用 |
-|------|------|
-| `hooks/run_claude.sh` | 一次性托管执行，必须 `-p/--print` |
-| `hooks/start_claude.sh` | 启动交互式托管 tmux 会话 |
-| `hooks/stop_claude.sh` | 停止托管 tmux 会话 |
-| `runtime/start_local_claude.sh` | 启动本地控制、可 handoff 的会话 |
-| `runtime/list_sessions.sh` | 列出托管会话 |
-| `runtime/session_status.sh` | 查看托管会话详情 |
-| `runtime/takeover.sh` | 交给 OpenClaw 接管 |
-| `runtime/reclaim.sh` | 切回本地控制 |
+### Managed sessions
 
-## 什么时候适合它
+- `hooks/start_claude.sh` starts an interactive managed session in `tmux`
+- `hooks/run_claude.sh` runs a managed print-mode invocation
+- `runtime/start_local_claude.sh` starts a session under local control first
 
-- 你希望 OpenClaw 帮你操作 Claude Code，而不是自己坐在终端前 babysit
-- 你需要长任务、迭代任务、多轮审批任务
-- 你想保留“随时 tmux attach 介入”的透明度
-- 你想让多个 Claude 项目会话稳定并存
+### Session control
 
-## 快速开始
+- `runtime/takeover.sh` hands a managed session to OpenClaw
+- `runtime/reclaim.sh` returns control to the local operator
+- `runtime/list_sessions.sh` and `runtime/session_status.sh` expose runtime state
 
-看 [INSTALL.md](INSTALL.md)。
+### Hook integration
 
-最常用的两种方式：
+The managed overlay wires in these Claude hooks:
+
+- `Stop`
+- `Notification`
+- `PermissionRequest(Bash)`
+- `TeammateIdle`
+- `TaskCompleted`
+
+### Approval chain
+
+The current approval layer is deliberately small in scope:
+
+- clearly safe read-only or verification-style Bash commands can be auto-allowed
+- obviously dangerous Bash commands can be auto-denied
+- everything else falls back to Claude's normal permission flow
+
+This reduces approval friction without pretending that all shell requests are safe to automate.
+
+## Quick Start
+
+See [INSTALL.md](INSTALL.md) for setup details.
+
+Common entry points:
+
+### Start a managed interactive session
 
 ```bash
-# 方式 1：让 OpenClaw 启动托管会话
 bash hooks/start_claude.sh claude-demo /path/to/project --permission-mode acceptEdits
+tmux attach -t claude-demo
+```
 
-# 方式 2：先本地开始，之后 handoff
+### Start local-first, hand off later
+
+```bash
 bash runtime/start_local_claude.sh /path/to/project --permission-mode acceptEdits
 bash runtime/takeover.sh my-project
 bash runtime/reclaim.sh my-project
 ```
 
-## 从旧版升级
+### Run a one-shot managed job
 
-如果你之前按旧文档做过这些事：
+```bash
+bash hooks/run_claude.sh /path/to/project -p --model sonnet "Analyze the repository and summarize the architecture."
+```
 
-- 在全局 `~/.claude/settings.json` 里手工合并本项目 hooks
-- 为了托管会话特意修改 OpenClaw session reset 策略
+## Repository Layout
 
-那么现在都不是托管功能的硬前提了。你可以保留旧配置，但新版本默认依赖 wrapper 的运行时 overlay，而不是全局配置污染。
+| Path | Purpose |
+|------|---------|
+| `hooks/` | Claude hook handlers and launch wrappers |
+| `runtime/` | session store, handoff, reclaim, and inspection scripts |
+| `tests/` | regression coverage |
+| `knowledge/` | reference notes used to maintain the skill |
 
-## 当前状态
+## Main Scripts
 
-- 运行时脚本已升级为独立 OpenClaw session routing
-- 托管 settings 注入已经内建到 wrappers
-- 回归测试覆盖了：
-  - 唤醒去重
-  - 质量门禁
-  - 歧义 selector 提示
-  - `--session-id` 路由
-  - managed settings overlay 注入
+| Script | Purpose |
+|------|---------|
+| `hooks/start_claude.sh` | start an interactive managed Claude session |
+| `hooks/run_claude.sh` | run a managed print-mode Claude invocation |
+| `hooks/stop_claude.sh` | stop a managed session |
+| `runtime/start_local_claude.sh` | start a local-first session that can later be handed off |
+| `runtime/takeover.sh` | transfer control of a managed session to OpenClaw |
+| `runtime/reclaim.sh` | return a session to local control |
+| `runtime/list_sessions.sh` | list managed sessions |
+| `runtime/session_status.sh` | inspect session metadata |
 
-## 和旧版相比最重要的取舍
+## Requirements
 
-旧思路更像“教 OpenClaw 怎么在终端里像人一样点点点”。
+- OpenClaw
+- Claude Code with working auth
+- `tmux`
+- `jq`
 
-现在的思路是：
+After installation, the first check should usually be:
 
-- Claude Code 继续是执行引擎
-- OpenClaw 负责策略和监督
-- wrapper 负责托管边界和状态路由
+```bash
+bash tests/regression.sh
+```
 
-这更像一个稳定产品，而不是一组巧妙脚本。
+## Status
+
+- Latest release tag: `v0.2.0`
+- `main` currently contains post-release work for the `PermissionRequest` approval chain
+- Compatibility baseline:
+  - OpenClaw `2026.3.11+`
+  - Claude Code `2.1.80+`
+
+For release history, see [CHANGELOG.md](CHANGELOG.md).
+
+## Non-Goals
+
+- replacing Claude Code itself
+- managing arbitrary user-started `claude` sessions
+- silently mutating every global Claude config on the machine
+- auto-approving all shell access
+
+## Documentation
+
+- [INSTALL.md](INSTALL.md)
+- [CHANGELOG.md](CHANGELOG.md)
+- [SKILL.md](SKILL.md)
+- [README_ZH.md](README_ZH.md)
+- [knowledge/](knowledge)
