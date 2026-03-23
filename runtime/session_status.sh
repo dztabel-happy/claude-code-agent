@@ -1,6 +1,6 @@
 #!/bin/bash
 # Show details for one managed Claude session.
-# Usage: ./session_status.sh [--json] <session-key|tmux-session|project-label|cwd>
+# Usage: ./session_status.sh [--json] <selector>
 
 set -euo pipefail
 
@@ -21,7 +21,7 @@ Options:
   -h, --help  Show this help
 
 Selector resolution order:
-  session_key -> tmux_session -> full cwd -> unique project_label -> unique cwd basename
+  session_key -> tmux_session -> full cwd -> openclaw_session_id -> unique project_label -> unique cwd basename
 EOF
 }
 
@@ -41,7 +41,7 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-SELECTOR="${1:?Usage: $0 [--json] <session-key|tmux-session|project-label|cwd>}"
+SELECTOR="${1:?Usage: $0 [--json] <selector>}"
 set +e
 SESSION_KEY="$(session_store_resolve_selector_checked "$SELECTOR")"
 RESOLVE_RC=$?

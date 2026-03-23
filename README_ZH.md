@@ -28,6 +28,9 @@
 - “用 `claude-code-agent` 修复 `/path/to/project` 里的这个 bug，跑完测试再汇报。”
 - “用 `claude-code-agent` 审查 `/path/to/project` 当前改动。”
 - “用 `claude-code-agent` 对 `/path/to/project` 做一次只读审计。”
+- “用 `claude-code-agent` 把当前 Claude 会话切回本地控制。”
+- “用 `claude-code-agent` 恢复 `/path/to/project` 的 Claude 会话托管。”
+- “用 `claude-code-agent` 列出当前所有托管的 Claude 会话。”
 
 然后 OpenClaw 应该自己选择这个 skill，启动或复用一个托管的 Claude Code 会话，并通过 hooks 唤醒的方式继续推进任务。
 
@@ -52,7 +55,17 @@
 
 ## 人工介入、正式接管、再交还
 
-你可以随时介入，但这里其实有两个不同层级。
+你可以随时介入，但日常更推荐的路径仍然是直接对 OpenClaw 说。
+
+例如：
+
+- “用 `claude-code-agent` 把当前这个会话交还给我。”
+- “用 `claude-code-agent` 继续接管 `/path/to/project` 的 Claude 会话。”
+- “用 `claude-code-agent` 停掉 `claude-demo` 这个会话。”
+
+这时 OpenClaw 应该通过这个 skill 替你执行对应的控制动作。
+
+如果你人已经在电脑前，想走本地兜底入口，那这里仍然分两个层级。
 
 ### 1. 直接看现场，或临时和 Claude 对话
 
@@ -68,23 +81,24 @@ tmux attach -t <session-name>
 
 ### 2. 正式把控制权从 OpenClaw 切回本地
 
-如果你希望这个会话不再由 OpenClaw 托管，而是明确切回本地控制，请执行：
+如果你想在终端里把会话明确切回本地控制，请执行：
 
 ```bash
-bash runtime/reclaim.sh <selector>
+bash runtime/control_session.sh reclaim [selector]
 ```
 
-之后如果你又想把同一个会话正式交还给 OpenClaw：
+之后如果你又想在终端里把同一个会话正式交还给 OpenClaw：
 
 ```bash
-bash runtime/takeover.sh <selector>
+bash runtime/control_session.sh takeover [selector]
 ```
 
 实用记忆法就是：
 
 - `tmux attach` = 查看现场 / 临时人工介入
-- `runtime/reclaim.sh` = 正式把控制权切回本地
-- `runtime/takeover.sh` = 正式把会话交还给 OpenClaw
+- 直接对 OpenClaw 说“切回本地 / 继续接管” = 日常首选控制路径
+- `runtime/control_session.sh reclaim` = 本地兜底，正式把控制权切回本地
+- `runtime/control_session.sh takeover` = 本地兜底，正式把会话交还给 OpenClaw
 
 ## 设计目标
 
@@ -123,6 +137,7 @@ bash runtime/takeover.sh <selector>
 
 ### 会话控制
 
+- `runtime/control_session.sh`：已有会话的统一控制入口，优先使用
 - `runtime/takeover.sh`：把托管会话交给 OpenClaw
 - `runtime/reclaim.sh`：把会话切回本地控制
 - `runtime/list_sessions.sh` / `runtime/session_status.sh`：查看会话状态
@@ -163,7 +178,7 @@ bash runtime/takeover.sh <selector>
 1. 把 skill 安装到 OpenClaw 能发现的位置。
 2. 直接让 OpenClaw 使用 `claude-code-agent` 执行任务。
 3. 让 OpenClaw 在 Claude hook 唤醒之间休眠等待。
-4. 只有在你需要人工查看或改控制权时，才使用 `tmux attach`、`runtime/reclaim.sh`、`runtime/takeover.sh`。
+4. 优先让 OpenClaw 替你完成“切回本地 / 继续接管 / 列会话 / 停会话”；只有在你需要本地兜底时，才使用 `tmux attach` 或 `runtime/control_session.sh`。
 
 详细安装见 [INSTALL.md](INSTALL.md)。
 
@@ -176,6 +191,25 @@ bash runtime/takeover.sh <selector>
 用 claude-code-agent 修复 /path/to/project 里的 bug，跑完测试再汇报。
 用 claude-code-agent 审查 /path/to/project 当前改动。
 用 claude-code-agent 对 /path/to/project 做一次只读审计。
+用 claude-code-agent 把当前 Claude 会话切回本地控制。
+用 claude-code-agent 恢复 /path/to/project 的 Claude 会话托管。
+用 claude-code-agent 列出当前所有托管的 Claude 会话。
+```
+
+### 本地兜底：控制已有会话
+
+```bash
+bash runtime/control_session.sh list
+bash runtime/control_session.sh status
+bash runtime/control_session.sh reclaim
+bash runtime/control_session.sh takeover /path/to/project
+bash runtime/control_session.sh stop claude-demo
+```
+
+### 本地兜底：直接查看现场会话
+
+```bash
+tmux attach -t claude-demo
 ```
 
 ### 手工兜底：启动交互式托管会话
@@ -189,8 +223,8 @@ tmux attach -t claude-demo
 
 ```bash
 bash runtime/start_local_claude.sh /path/to/project --permission-mode acceptEdits
-bash runtime/takeover.sh my-project
-bash runtime/reclaim.sh my-project
+bash runtime/control_session.sh takeover my-project
+bash runtime/control_session.sh reclaim my-project
 ```
 
 ### 手工兜底：一次性托管执行

@@ -109,8 +109,8 @@ Reply with exactly: HANDOFF_READY
 退出 attach 后，另开终端：
 
 ```bash
-bash "$CLAUDE_CODE_AGENT_DIR/runtime/list_sessions.sh"
-bash "$CLAUDE_CODE_AGENT_DIR/runtime/session_status.sh" claude-claude-code-agent-test
+bash "$CLAUDE_CODE_AGENT_DIR/runtime/control_session.sh" list
+bash "$CLAUDE_CODE_AGENT_DIR/runtime/control_session.sh" status claude-claude-code-agent-test
 ```
 
 你应当看到：
@@ -122,8 +122,8 @@ bash "$CLAUDE_CODE_AGENT_DIR/runtime/session_status.sh" claude-claude-code-agent
 ### 方式 B：接管同一会话
 
 ```bash
-bash "$CLAUDE_CODE_AGENT_DIR/runtime/takeover.sh" claude-claude-code-agent-test
-bash "$CLAUDE_CODE_AGENT_DIR/runtime/session_status.sh" claude-claude-code-agent-test
+bash "$CLAUDE_CODE_AGENT_DIR/runtime/control_session.sh" takeover claude-claude-code-agent-test
+bash "$CLAUDE_CODE_AGENT_DIR/runtime/control_session.sh" status claude-claude-code-agent-test
 ```
 
 你应当看到：
@@ -135,10 +135,22 @@ bash "$CLAUDE_CODE_AGENT_DIR/runtime/session_status.sh" claude-claude-code-agent
 ### 方式 C：归还本地
 
 ```bash
-bash "$CLAUDE_CODE_AGENT_DIR/runtime/reclaim.sh" claude-claude-code-agent-test
+bash "$CLAUDE_CODE_AGENT_DIR/runtime/control_session.sh" reclaim claude-claude-code-agent-test
 ```
 
 ## 当前推荐的使用方式
+
+优先让 OpenClaw 通过对话使用这个 skill 来启动、继续、归还、查看或停止 Claude 会话。
+
+如果你人在本机前，需要一个本地兜底入口，优先用：
+
+```bash
+bash "$CLAUDE_CODE_AGENT_DIR/runtime/control_session.sh" list
+bash "$CLAUDE_CODE_AGENT_DIR/runtime/control_session.sh" status
+bash "$CLAUDE_CODE_AGENT_DIR/runtime/control_session.sh" reclaim
+bash "$CLAUDE_CODE_AGENT_DIR/runtime/control_session.sh" takeover /path/to/project
+bash "$CLAUDE_CODE_AGENT_DIR/runtime/control_session.sh" stop claude-demo
+```
 
 ### 默认单次任务
 
@@ -202,8 +214,8 @@ claude -p --model haiku --max-turns 1 "Reply with exactly: OK"
 ### 看托管会话状态
 
 ```bash
-bash "$CLAUDE_CODE_AGENT_DIR/runtime/list_sessions.sh"
-bash "$CLAUDE_CODE_AGENT_DIR/runtime/session_status.sh" <selector>
+bash "$CLAUDE_CODE_AGENT_DIR/runtime/control_session.sh" list
+bash "$CLAUDE_CODE_AGENT_DIR/runtime/control_session.sh" status <selector>
 ```
 
 ### 确认是否路由到独立 OpenClaw session

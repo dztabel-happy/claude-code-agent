@@ -145,6 +145,32 @@ test_selector_ambiguity_reports_multiple() {
     rm -rf "$runtime_dir"
 }
 
+test_selector_accepts_openclaw_session_id() {
+    local runtime_dir stdout_file rc
+
+    runtime_dir="$(mktemp -d)"
+    stdout_file="$(mktemp)"
+    mkdir -p "$runtime_dir/sessions"
+
+    jq -n \
+        --arg session_key "route-test" \
+        --arg openclaw_session_id "claude-code-agent-route-test" \
+        '{session_key: $session_key, project_label: "demo", cwd: "/tmp/demo", tmux_session: "demo-tmux", status: "running", openclaw_session_id: $openclaw_session_id}' \
+        > "$runtime_dir/sessions/route-test.json"
+
+    set +e
+    OPENCLAW_CLAUDE_RUNTIME_DIR="$runtime_dir" \
+        bash "$ROOT_DIR/runtime/session_status.sh" --json claude-code-agent-route-test >"$stdout_file"
+    rc=$?
+    set -e
+
+    assert_eq "0" "$rc" "openclaw_session_id selector should resolve"
+    assert_eq "route-test" "$(jq -r '.session_key' "$stdout_file")" "resolved session should match"
+
+    rm -f "$stdout_file"
+    rm -rf "$runtime_dir"
+}
+
 test_hook_logs_are_private() {
     local runtime_dir log_file
 
@@ -453,7 +479,129 @@ test_wrapper_help_outputs() {
     assert_eq "0" "$rc" "session_status --help should succeed"
     assert_contains "Show details for one managed Claude session." "$tmp"
 
+    set +e
+    bash "$ROOT_DIR/runtime/control_session.sh" --help >"$tmp"
+    rc=$?
+    set -e
+    assert_eq "0" "$rc" "control_session --help should succeed"
+    assert_contains "Control managed Claude sessions through one entrypoint." "$tmp"
+    assert_contains "Auto-selection order when selector is omitted:" "$tmp"
+
     rm -f "$tmp"
+}
+
+test_control_session_auto_reclaim_prefers_single_openclaw_session() {
+    local runtime_dir tmux_openclaw tmux_local
+
+    runtime_dir="$(mktemp -d)"
+    tmux_openclaw="claude-agent-regression-$$-ctrl-openclaw"
+    tmux_local="claude-agent-regression-$$-ctrl-local"
+
+    tmux new-session -d -s "$tmux_openclaw" 'sleep 60'
+    tmux new-session -d -s "$tmux_local" 'sleep 60'
+    mkdir -p "$runtime_dir/sessions"
+
+    jq -n \
+        --arg session_key "openclaw-test" \
+        --arg project_label "demo-openclaw" \
+        --arg cwd "/tmp/demo-openclaw" \
+        --arg tmux_session "$tmux_openclaw" \
+        '{
+            session_key: $session_key,
+            project_label: $project_label,
+            cwd: $cwd,
+            tmux_session: $tmux_session,
+            launch_mode: "interactive",
+            controller: "openclaw",
+            notify_mode: "attention",
+            permission_policy: "safe",
+            status: "running",
+            managed_by: "openclaw",
+            attached_clients: 0,
+            tmux_exists: true,
+            chat_id: "",
+            channel: "telegram",
+            agent_name: "main"
+        }' > "$runtime_dir/sessions/openclaw-test.json"
+
+    jq -n \
+        --arg session_key "local-test" \
+        --arg project_label "demo-local" \
+        --arg cwd "/tmp/demo-local" \
+        --arg tmux_session "$tmux_local" \
+        '{
+            session_key: $session_key,
+            project_label: $project_label,
+            cwd: $cwd,
+            tmux_session: $tmux_session,
+            launch_mode: "interactive",
+            controller: "local",
+            notify_mode: "off",
+            permission_policy: "off",
+            status: "running",
+            managed_by: "local",
+            attached_clients: 0,
+            tmux_exists: true,
+            chat_id: "",
+            channel: "telegram",
+            agent_name: "main"
+        }' > "$runtime_dir/sessions/local-test.json"
+
+    OPENCLAW_CLAUDE_RUNTIME_DIR="$runtime_dir" \
+        bash "$ROOT_DIR/runtime/control_session.sh" reclaim >/dev/null
+
+    assert_eq "local" "$(jq -r '.controller' "$runtime_dir/sessions/openclaw-test.json")" "control_session reclaim should target the single openclaw-controlled session"
+    assert_eq "local" "$(jq -r '.controller' "$runtime_dir/sessions/local-test.json")" "control_session reclaim should not touch unrelated local session"
+
+    tmux kill-session -t "$tmux_openclaw" >/dev/null 2>&1 || true
+    tmux kill-session -t "$tmux_local" >/dev/null 2>&1 || true
+    rm -rf "$runtime_dir"
+}
+
+test_control_session_reports_ambiguity_without_selector() {
+    local runtime_dir tmux_one tmux_two stdout_file stderr_file rc
+
+    runtime_dir="$(mktemp -d)"
+    stdout_file="$(mktemp)"
+    stderr_file="$(mktemp)"
+    tmux_one="claude-agent-regression-$$-ctrl-amb-1"
+    tmux_two="claude-agent-regression-$$-ctrl-amb-2"
+
+    tmux new-session -d -s "$tmux_one" 'sleep 60'
+    tmux new-session -d -s "$tmux_two" 'sleep 60'
+    mkdir -p "$runtime_dir/sessions"
+
+    jq -n \
+        --arg session_key "local-a" \
+        --arg project_label "demo-a" \
+        --arg cwd "/tmp/demo-a" \
+        --arg tmux_session "$tmux_one" \
+        '{session_key: $session_key, project_label: $project_label, cwd: $cwd, tmux_session: $tmux_session, launch_mode: "interactive", controller: "local", notify_mode: "off", status: "running", managed_by: "local", attached_clients: 0, tmux_exists: true}' \
+        > "$runtime_dir/sessions/local-a.json"
+
+    jq -n \
+        --arg session_key "local-b" \
+        --arg project_label "demo-b" \
+        --arg cwd "/tmp/demo-b" \
+        --arg tmux_session "$tmux_two" \
+        '{session_key: $session_key, project_label: $project_label, cwd: $cwd, tmux_session: $tmux_session, launch_mode: "interactive", controller: "local", notify_mode: "off", status: "running", managed_by: "local", attached_clients: 0, tmux_exists: true}' \
+        > "$runtime_dir/sessions/local-b.json"
+
+    set +e
+    OPENCLAW_CLAUDE_RUNTIME_DIR="$runtime_dir" \
+        bash "$ROOT_DIR/runtime/control_session.sh" takeover --no-wake >"$stdout_file" 2>"$stderr_file"
+    rc=$?
+    set -e
+
+    assert_eq "2" "$rc" "control_session should refuse ambiguous auto-selection"
+    assert_contains "Multiple running managed Claude sessions are eligible for 'takeover'." "$stderr_file"
+    assert_contains "Running managed Claude sessions:" "$stderr_file"
+    assert_eq "0" "$(wc -c <"$stdout_file" | tr -d ' ')" "ambiguous control_session takeover should not print stdout"
+
+    tmux kill-session -t "$tmux_one" >/dev/null 2>&1 || true
+    tmux kill-session -t "$tmux_two" >/dev/null 2>&1 || true
+    rm -f "$stdout_file" "$stderr_file"
+    rm -rf "$runtime_dir"
 }
 
 test_run_claude_injects_managed_settings_overlay() {
@@ -761,6 +909,7 @@ main() {
     test_takeover_enables_safe_permission_policy
     test_reclaim_disables_permission_policy
     test_selector_ambiguity_reports_multiple
+    test_selector_accepts_openclaw_session_id
     test_hook_logs_are_private
     test_hook_wake_logs_real_result
     test_hook_wake_deduplicates_by_session
@@ -769,6 +918,8 @@ main() {
     test_task_completed_gate_blocks
     test_task_completed_gate_is_opt_in
     test_wrapper_help_outputs
+    test_control_session_auto_reclaim_prefers_single_openclaw_session
+    test_control_session_reports_ambiguity_without_selector
     test_run_claude_requires_print_mode
     test_run_claude_injects_managed_settings_overlay
     test_run_claude_opt_in_agent_teams_overlay

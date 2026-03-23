@@ -30,7 +30,7 @@ Options:
   -h, --help                    Show this help
 
 Selector resolution order:
-  session_key -> tmux_session -> full cwd -> unique project_label -> unique cwd basename
+  session_key -> tmux_session -> full cwd -> openclaw_session_id -> unique project_label -> unique cwd basename
 EOF
 }
 

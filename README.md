@@ -28,6 +28,9 @@ Your normal entry point is **OpenClaw conversation**, for example:
 - "Use `claude-code-agent` to fix this bug in `/path/to/project`, run tests, then report back."
 - "Use `claude-code-agent` to review the current changes in `/path/to/project`."
 - "Use `claude-code-agent` to do a read-only audit of `/path/to/project`."
+- "Use `claude-code-agent` to hand the current Claude session back to local control."
+- "Use `claude-code-agent` to resume the Claude session for `/path/to/project`."
+- "Use `claude-code-agent` to list the current managed Claude sessions."
 
 OpenClaw should then choose this skill, launch or reuse a managed Claude Code session, and continue the task through hook wakeups.
 
@@ -52,7 +55,17 @@ This means the intended runtime model is event-driven, not "OpenClaw constantly 
 
 ## Manual Takeover And Return
 
-You can step in at any time, but there are two different levels of intervention.
+You can step in at any time, but the preferred path is still to ask OpenClaw in conversation.
+
+For example:
+
+- "Use `claude-code-agent` to hand the current session back to me."
+- "Use `claude-code-agent` to resume the `/path/to/project` Claude session."
+- "Use `claude-code-agent` to stop the `claude-demo` session."
+
+OpenClaw should then run the control action for you through this skill.
+
+If you are already at the keyboard and want a local fallback, there are still two different levels of intervention.
 
 ### 1. Inspect or talk to Claude directly
 
@@ -68,23 +81,24 @@ However, this does **not** formally transfer ownership away from OpenClaw. It is
 
 ### 2. Formally take control back from OpenClaw
 
-If you want the session to stop being OpenClaw-managed and become locally controlled, run:
+If you want the session to stop being OpenClaw-managed and become locally controlled from the terminal, run:
 
 ```bash
-bash runtime/reclaim.sh <selector>
+bash runtime/control_session.sh reclaim [selector]
 ```
 
-Later, when you want OpenClaw to resume control:
+Later, when you want OpenClaw to resume control from the terminal:
 
 ```bash
-bash runtime/takeover.sh <selector>
+bash runtime/control_session.sh takeover [selector]
 ```
 
 So the practical rule is:
 
 - `tmux attach` = inspect or intervene live
-- `runtime/reclaim.sh` = formally switch ownership back to local control
-- `runtime/takeover.sh` = formally hand the session back to OpenClaw
+- asking OpenClaw to reclaim/take over = preferred day-to-day control path
+- `runtime/control_session.sh reclaim` = local fallback to formally switch ownership back to local control
+- `runtime/control_session.sh takeover` = local fallback to formally hand the session back to OpenClaw
 
 ## Design Goals
 
@@ -123,6 +137,7 @@ The important managed-session fields are:
 
 ### Session control
 
+- `runtime/control_session.sh` is the preferred unified control entrypoint for existing sessions
 - `runtime/takeover.sh` hands a managed session to OpenClaw
 - `runtime/reclaim.sh` returns control to the local operator
 - `runtime/list_sessions.sh` and `runtime/session_status.sh` expose runtime state
@@ -163,7 +178,7 @@ The quickest way to understand this project is:
 1. Install the skill where OpenClaw can discover it.
 2. Ask OpenClaw to use `claude-code-agent` for a task.
 3. Let OpenClaw sleep between Claude hook wakeups.
-4. Use `tmux attach`, `runtime/reclaim.sh`, or `runtime/takeover.sh` only when you want to inspect or change control manually.
+4. Ask OpenClaw to reclaim, resume, list, or stop sessions for you; use `tmux attach` or `runtime/control_session.sh` only as local fallback.
 
 See [INSTALL.md](INSTALL.md) for setup details.
 
@@ -176,6 +191,25 @@ Use claude-code-agent to analyze /path/to/project.
 Use claude-code-agent to fix a bug in /path/to/project and run tests before reporting back.
 Use claude-code-agent to review the current changes in /path/to/project.
 Use claude-code-agent to do a read-only audit of /path/to/project.
+Use claude-code-agent to hand the current Claude session back to local control.
+Use claude-code-agent to resume the Claude session for /path/to/project.
+Use claude-code-agent to list the current managed Claude sessions.
+```
+
+### Local fallback: control an existing session
+
+```bash
+bash runtime/control_session.sh list
+bash runtime/control_session.sh status
+bash runtime/control_session.sh reclaim
+bash runtime/control_session.sh takeover /path/to/project
+bash runtime/control_session.sh stop claude-demo
+```
+
+### Local fallback: inspect a live session directly
+
+```bash
+tmux attach -t claude-demo
 ```
 
 ### Manual fallback: start a managed interactive session
@@ -189,8 +223,8 @@ tmux attach -t claude-demo
 
 ```bash
 bash runtime/start_local_claude.sh /path/to/project --permission-mode acceptEdits
-bash runtime/takeover.sh my-project
-bash runtime/reclaim.sh my-project
+bash runtime/control_session.sh takeover my-project
+bash runtime/control_session.sh reclaim my-project
 ```
 
 ### Manual fallback: run a one-shot managed job

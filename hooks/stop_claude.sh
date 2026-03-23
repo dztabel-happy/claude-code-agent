@@ -1,6 +1,6 @@
 #!/bin/bash
 # Stop a managed Claude tmux session.
-# Usage: ./stop_claude.sh <session-key|tmux-session|project-label|cwd>
+# Usage: ./stop_claude.sh <selector>
 
 set -euo pipefail
 
@@ -20,7 +20,7 @@ Examples:
   $0 /abs/path/to/project
 
 Selector resolution order:
-  session_key -> tmux_session -> full cwd -> unique project_label -> unique cwd basename
+  session_key -> tmux_session -> full cwd -> openclaw_session_id -> unique project_label -> unique cwd basename
 EOF
 }
 

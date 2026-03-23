@@ -1,6 +1,6 @@
 ---
 name: claude-code-agent
-description: "把 Claude Code 作为 OpenClaw 可托管运行时来使用。负责启动、接管、监督和回收 Claude Code 会话，并利用 hooks、tmux 和显式 session routing 持续推进复杂任务。适用于复杂、多轮、可验证任务；不适用于简单读写或直接问答。"
+description: "把 Claude Code 作为 OpenClaw 可托管运行时来使用。负责启动、监督和通过对话控制 Claude Code 托管会话，并利用 hooks、tmux 和显式 session routing 持续推进复杂任务。适用于复杂、多轮、可验证任务；不适用于简单读写或直接问答。"
 metadata: {"openclaw":{"requires":{"bins":["bash","jq","tmux","claude","openclaw"]}}}
 ---
 
@@ -36,7 +36,7 @@ metadata: {"openclaw":{"requires":{"bins":["bash","jq","tmux","claude","openclaw
 - 单次任务：优先 `hooks/run_claude.sh` + `-p`
 - 多轮任务：优先 `hooks/start_claude.sh`
 - 用户先本地做：用 `runtime/start_local_claude.sh`
-- 现有托管会话：先 `runtime/list_sessions.sh` / `runtime/session_status.sh`，确认后再继续
+- 已有托管会话的查看 / 接管 / 归还 / 停止：优先 `runtime/control_session.sh`
 
 ### 权限策略
 
@@ -81,30 +81,45 @@ bash {baseDir}/runtime/start_local_claude.sh <workdir> \
   --permission-mode acceptEdits
 ```
 
-### 接管 / 归还 / 查看状态
+### 对话式控制已有会话
+
+```bash
+bash {baseDir}/runtime/control_session.sh list
+bash {baseDir}/runtime/control_session.sh status [selector]
+bash {baseDir}/runtime/control_session.sh reclaim [selector]
+bash {baseDir}/runtime/control_session.sh takeover [selector]
+bash {baseDir}/runtime/control_session.sh stop [selector]
+```
+
+### 低层脚本（仅在排障或特殊场景下）
 
 ```bash
 bash {baseDir}/runtime/list_sessions.sh
 bash {baseDir}/runtime/session_status.sh <selector>
 bash {baseDir}/runtime/takeover.sh <selector>
 bash {baseDir}/runtime/reclaim.sh <selector>
+bash {baseDir}/hooks/stop_claude.sh <selector>
 ```
 
-### 关闭会话
+## 对话意图映射
 
-```bash
-bash {baseDir}/hooks/stop_claude.sh <session-name>
-```
+当用户不是在“新开一个 Claude 任务”，而是在“控制已有托管会话”时，优先按自然语言意图映射：
+
+- “切回本地 / 我来接手 / 先别由你托管” -> `runtime/control_session.sh reclaim`
+- “继续交给你 / 恢复托管 / 你继续跑刚才那个会话” -> `runtime/control_session.sh takeover`
+- “看看现在有哪些 Claude 会话” -> `runtime/control_session.sh list`
+- “看看当前会话状态” -> `runtime/control_session.sh status`
+- “把那个会话停掉” -> `runtime/control_session.sh stop`
 
 ## 处理已有会话时
 
 按这个顺序：
 
-1. `runtime/list_sessions.sh --json`
-2. `runtime/session_status.sh <selector>`
-3. 如果有多个候选，先向用户确认，不要猜
-4. 只有 `controller=openclaw` 的会话，才直接继续推进
-5. 如果当前是 `controller=local`，先用 `runtime/takeover.sh`
+1. 优先用 `runtime/control_session.sh`
+2. 如果用户给了项目路径、session 名、tmux 名，直接当 selector 传入
+3. 如果用户说“当前这个 / 刚才那个 / 这个项目”，先尝试**不带 selector**调用 `runtime/control_session.sh <action>`
+4. 只有脚本返回歧义时，才向用户追问要操作哪个会话
+5. 仅在 `runtime/control_session.sh` 不足以表达需求时，才退回低层脚本
 
 ## 执行工作流
 
@@ -148,6 +163,8 @@ bash {baseDir}/hooks/stop_claude.sh <session-name>
 
 - 启动后优先看 hook 回调
 - hook 长时间没动静时，再看 tmux pane
+- 用户要求“切回本地”时，不要建议他先去终端；优先直接执行 `runtime/control_session.sh reclaim`
+- 用户要求“继续交给 OpenClaw”时，不要要求他自己跑脚本；优先直接执行 `runtime/control_session.sh takeover`
 - 交互式会话里发送文本与 `Enter` 要分开
 
 ```bash

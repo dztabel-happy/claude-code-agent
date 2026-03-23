@@ -20,7 +20,7 @@ Examples:
   $0 /abs/path/to/project
 
 Selector resolution order:
-  session_key -> tmux_session -> full cwd -> unique project_label -> unique cwd basename
+  session_key -> tmux_session -> full cwd -> openclaw_session_id -> unique project_label -> unique cwd basename
 EOF
 }
 
@@ -29,7 +29,7 @@ if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
     exit 0
 fi
 
-SELECTOR="${1:?Usage: $0 <session-key|tmux-session|project-label|cwd>}"
+SELECTOR="${1:?Usage: $0 <selector>}"
 set +e
 SESSION_KEY="$(session_store_resolve_selector_checked "$SELECTOR")"
 RESOLVE_RC=$?

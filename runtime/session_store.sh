@@ -473,6 +473,7 @@ session_store_resolve_selector() {
     local tmux_session
     local cwd
     local cwd_base
+    local openclaw_session_id
     local label_matches=()
     local base_matches=()
 
@@ -486,12 +487,13 @@ session_store_resolve_selector() {
         project_label=$(printf '%s' "$json" | jq -r '.project_label // ""')
         tmux_session=$(printf '%s' "$json" | jq -r '.tmux_session // ""')
         cwd=$(printf '%s' "$json" | jq -r '.cwd // ""')
+        openclaw_session_id=$(printf '%s' "$json" | jq -r '.openclaw_session_id // ""')
         cwd_base=""
         if [ -n "$cwd" ]; then
             cwd_base=$(basename "$cwd" 2>/dev/null || true)
         fi
 
-        if [ "$session_key" = "$selector" ] || [ "$tmux_session" = "$selector" ] || [ "$cwd" = "$selector" ]; then
+        if [ "$session_key" = "$selector" ] || [ "$tmux_session" = "$selector" ] || [ "$cwd" = "$selector" ] || [ "$openclaw_session_id" = "$selector" ]; then
             printf '%s\n' "$session_key"
             return 0
         fi
