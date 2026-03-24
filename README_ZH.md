@@ -2,315 +2,248 @@
 
 **[English](README.md)** | 中文
 
-`claude-code-agent` 是一个给 OpenClaw 使用的 skill。它把 Claude Code 包装成可托管、可恢复、可审计的运行时，而不是一段必须人工盯着的终端会话。
+`claude-code-agent` 是一个给 OpenClaw 用的 skill。它的核心不是“帮你包一层 Claude Code 命令”，而是让 OpenClaw 能把 Claude Code 当成一个可托管、可恢复、可远程接力的 worker。
 
-它补上的能力主要是：
+一句话理解：
 
-- wrapper 启动的 Claude 会话
-- 每会话独立 metadata 和路由
-- Claude hooks 驱动的 OpenClaw 唤醒
-- 本地先跑、之后 handoff / reclaim
-- 需要时可直接 `tmux attach`
+- OpenClaw 负责开会话、读进度、收通知、做决策、向你汇报
+- Claude Code 负责在同一个会话里持续干活
 
-## 它是什么
+## 核心能力
 
-这个仓库服务于“OpenClaw 代表用户去驱动 Claude Code”这个场景。
+- 用 OpenClaw 启动新 Claude Code 会话，或恢复已有会话
+- 会话常驻在 `tmux` 里，你离开电脑后不会断现场
+- 会话状态保存在 runtime metadata 里，OpenClaw 能找到同一条会话继续推进
+- `Notification`、`PermissionRequest`、`Stop` 等 hook 事件会把 OpenClaw 再唤醒
+- OpenClaw 接手时会先读最近的 `tmux` 输出，再决定下一步，而不是从头猜
+- 你可以随时让 OpenClaw 查看进度、继续执行、停掉会话、切回本地、再交还托管
+- OpenClaw 不需要一直常驻盯着终端，它是事件驱动地回来处理，像项目经理一样推进任务
+- 如果你人在电脑前，可以把会话正式切回本地，此后由你自己直接操作，OpenClaw 不再继续接收后续通知
+- 当你再次离开电脑时，可以再发消息让 OpenClaw 接管；它会先读之前的上下文和 `tmux` 现场，再继续同一会话
 
-它不是 Claude Code 的替代品，也不会默认去接管用户手工裸跑的 `claude` 会话。
+## 这个 skill 的定位
 
-## OpenClaw 的角色
+这不是一个“主要靠终端脚本手工使用”的项目。
 
-在这个 skill 里，OpenClaw 更应该像“项目经理”，而不是一个简单的消息转发器。
+它的定位很明确：
 
-它应该负责：
+- OpenClaw 是项目经理
+- Claude Code 是执行者
+- 这个仓库是二者之间的会话层、路由层、唤醒层
 
-- 理解用户真正目标和约束
-- 把用户的粗略表达整理成更好的 Claude Code 提示词
-- 选择合适的执行模式、模型和权限策略
-- 通过 hooks 持续监督进度
-- 在汇报前先做结果复核
+你真正日常使用的入口，应该是 OpenClaw 对话。
 
-Claude Code 是执行专家，OpenClaw 是编排者。
+## 你平时怎么用
 
-当任务变复杂时，OpenClaw 应优先做“最小足够升级”：先升级推理，再升级会话形态；先补工具，再考虑粗暴堆配置；只有真正适合并行时才升级到并行。
+### 1. 开始一个任务
 
-## 你平时到底怎么用它
+直接对 OpenClaw 说：
 
-日常使用时，你**不需要**先手工跑这些 wrapper 脚本。
+```text
+用 claude-code-agent 分析 /path/to/project。
+用 claude-code-agent 修复 /path/to/project 的 bug，跑完测试再汇报。
+用 claude-code-agent 审查 /path/to/project 当前改动。
+用 claude-code-agent 对 /path/to/project 做一次只读审计。
+```
 
-你的正常入口应该是**直接和 OpenClaw 对话**，例如：
+OpenClaw 应该做的是：
 
-- “用 `claude-code-agent` 分析 `/path/to/project`。”
-- “用 `claude-code-agent` 修复 `/path/to/project` 里的这个 bug，跑完测试再汇报。”
-- “用 `claude-code-agent` 审查 `/path/to/project` 当前改动。”
-- “用 `claude-code-agent` 对 `/path/to/project` 做一次只读审计。”
-- “用 `claude-code-agent` 把当前 Claude 会话切回本地控制。”
-- “用 `claude-code-agent` 恢复 `/path/to/project` 的 Claude 会话托管。”
-- “用 `claude-code-agent` 列出当前所有托管的 Claude 会话。”
+1. 选择这个 skill
+2. 启动或复用一个 Claude Code 托管会话
+3. 让 Claude Code 在那个会话里持续工作
+4. 在收到 hook 或消息事件后，再回到同一个会话继续推进
 
-然后 OpenClaw 应该自己选择这个 skill，启动或复用一个托管的 Claude Code 会话，并通过 hooks 唤醒的方式继续推进任务。
+### 2. 中途随时回来
 
-这个仓库里的“更简单默认值”，目的是降低日常使用摩擦，不是给 OpenClaw 封顶。只要任务确实需要，OpenClaw 仍然应该升级模型、effort、工具链或执行模式。
+任务做了一半，你可以随时再找 OpenClaw：
 
-这个仓库里的 shell 脚本主要用于：
+```text
+用 claude-code-agent 看一下 /path/to/project 现在做到哪了。
+用 claude-code-agent 继续刚才那个会话。
+用 claude-code-agent 把当前进度先总结给我。
+用 claude-code-agent 列出当前托管的 Claude 会话。
+```
 
-- skill 内部控制面
-- 人工排障和恢复
-- 你想亲自查看、介入或临时接管某个 Claude 会话时的直接兜底入口
+这里的关键不是“重新开一个 Claude”，而是继续同一个会话。
 
-## OpenClaw 的睡眠 / 唤醒模型
+会话状态在 runtime 里，现场输出在 `tmux` 里。OpenClaw 回来时可以先读现场，再继续干活。
 
-是的：在这个设计里，OpenClaw 本来就应该在步骤之间“休眠”，等 Claude Code 通过 hooks 再把它唤醒。
+### 3. 你可以直接离开电脑
 
-托管流程通常是：
+这是这个 skill 最重要的价值之一。
 
-1. OpenClaw 启动或复用一个托管的 Claude Code 会话。
-2. Claude Code 在那个会话里继续工作。
-3. `Stop`、`Notification`、`PermissionRequest` 之类的 hook 事件唤醒 OpenClaw。
-4. OpenClaw 再回到同一个托管会话继续推进，而不是一直盯着终端忙等。
+典型场景是：
 
-所以它的预期运行方式是“事件驱动”，不是“OpenClaw 永远挂在终端前面盯着 Claude”。
+1. 你让 OpenClaw 开始一个任务
+2. Claude Code 在 `tmux` 里继续工作
+3. 你离开电脑，甚至只剩手机能联系 OpenClaw
+4. 中间如果出现等待输入、审批、任务完成、异常停止等事件，OpenClaw 会收到消息
+5. OpenClaw 像项目经理一样决定下一步，并把情况告诉你
 
-## 人工介入、正式接管、再交还
+也就是说，OpenClaw 不用一直“挂在终端前面”。它和人操作 OpenClaw 一样，是被消息和事件驱动的。
 
-你可以随时介入，但日常更推荐的路径仍然是直接对 OpenClaw 说。
+### 4. 人在电脑前就切回本地，离开时再交还 OpenClaw
 
-例如：
+这是一个很重要的使用方式：
 
-- “用 `claude-code-agent` 把当前这个会话交还给我。”
-- “用 `claude-code-agent` 继续接管 `/path/to/project` 的 Claude 会话。”
-- “用 `claude-code-agent` 停掉 `claude-demo` 这个会话。”
+1. 你人在电脑前时，可以让 OpenClaw 把当前 Claude 会话切回本地控制
+2. 从那一刻开始，后面的操作就完全由你自己在终端里处理
+3. 因为控制权已经回到本地，OpenClaw 不会再继续接收这个会话后续的通知
+4. 当你准备离开电脑时，再对 OpenClaw 说一声，让它重新接管
+5. OpenClaw 接管后，会先读这个会话已有的上下文、状态记录和最近的 `tmux` 输出，然后继续推进
 
-这时 OpenClaw 应该通过这个 skill 替你执行对应的控制动作。
+也就是说，你可以在“本地亲自操作”和“远程让 OpenClaw 托管”之间来回切换，而且切换的是同一条会话，不是重新开新会话。
 
-如果你人已经在电脑前，想走本地兜底入口，那这里仍然分两个层级。
+## OpenClaw 在这里像什么
 
-### 1. 直接看现场，或临时和 Claude 对话
+像一个真正的项目经理，而不是简单转发器。
 
-先 attach 到 tmux：
+它应该做这些事：
+
+- 接收你的目标和约束
+- 把你的话整理成更合适的 Claude Code 执行指令
+- 选择继续旧会话还是开新会话
+- 在被唤醒后先读 `tmux` 最近输出和会话状态
+- 判断是继续推进、先汇报、请求你确认、还是切回本地
+- 保持你始终知道现在发生了什么
+
+所以这个 skill 的核心不是“帮 OpenClaw 调一次 Claude”，而是“让 OpenClaw 能长期托管 Claude Code 项目会话”。
+
+## 它到底怎么工作的
+
+工作链路可以压缩成 5 步：
+
+1. OpenClaw 通过这个 skill 启动 Claude Code 托管会话
+2. Claude Code 跑在 `tmux` 里，现场持续保留
+3. 运行时把 `session_key`、`cwd`、`openclaw_session_id`、`permission_policy` 等状态写到本地 runtime
+4. Claude hooks 在 `Notification`、`PermissionRequest`、`Stop` 等节点唤醒 OpenClaw
+5. OpenClaw 回来后先读会话状态和最近 `tmux` 输出，再决定后续动作
+
+所以它不是“OpenClaw 一直盯着 Claude”，而是“Claude 需要时再把 OpenClaw 叫回来”。
+
+## 快速开始
+
+### 1. 准备条件
+
+- 已安装 OpenClaw
+- 已安装并认证 Claude Code
+- 已安装 `tmux`
+- 已安装 `jq`
+
+### 2. 把 skill 放到 OpenClaw 能发现的位置
+
+OpenClaw 最新文档说明，skills 的发现优先级是：
+
+1. `<workspace>/skills`
+2. `~/.openclaw/skills`
+3. OpenClaw 自带 bundled skills
+
+推荐安装方式：
+
+装到 workspace：
+
+```bash
+git clone https://github.com/dztabel-happy/claude-code-agent.git ~/.openclaw/workspace/skills/claude-code-agent
+```
+
+装成共享 skill：
+
+```bash
+git clone https://github.com/dztabel-happy/claude-code-agent.git ~/.openclaw/skills/claude-code-agent
+```
+
+如果你的 workspace 不是 `~/.openclaw/workspace`，就换成 `<你的 workspace>/skills/claude-code-agent`。
+
+### 3. 需要时先跑 OpenClaw 官方初始化
+
+```bash
+openclaw onboard
+```
+
+官方文档把它作为 gateway、workspace、skills 的统一 onboarding 入口。
+
+### 4. 新开 OpenClaw 会话后直接使用
+
+```text
+用 claude-code-agent 分析 /path/to/project。
+```
+
+这是日常主路径。不是先去终端手工跑 wrapper。
+
+## 如何让 OpenClaw 安装这个 skill
+
+这里要说清楚两件事。
+
+### 官方文档层面
+
+最新 OpenClaw 文档已经说明：
+
+- `openclaw onboard` 是官方推荐的初始化入口
+- OpenClaw 有自己的 skills 发现和安装体系
+- skills 会从 workspace 和共享目录自动发现
+
+### 这个仓库当前最稳妥的落地方式
+
+对这个 GitHub 仓库来说，目前最稳妥的方式仍然是：
+
+1. clone 或复制到 `<workspace>/skills/claude-code-agent` 或 `~/.openclaw/skills/claude-code-agent`
+2. 新开一个 OpenClaw 会话
+3. 直接让 OpenClaw 使用 `claude-code-agent`
+
+不要默认认为 OpenClaw 只靠 skill 名就一定能直接从 GitHub 拉这个仓库，除非你当前使用的 OpenClaw 构建和 registry 发布状态明确支持这条路径。
+
+## 什么时候你要亲自介入
+
+日常推荐仍然是让 OpenClaw 处理：
+
+```text
+用 claude-code-agent 把当前会话切回本地控制。
+用 claude-code-agent 继续接管 /path/to/project 的 Claude 会话。
+用 claude-code-agent 停掉 claude-demo 这个会话。
+```
+
+如果你已经在电脑前，本地兜底工具如下。
+
+只看现场，不改变控制权：
 
 ```bash
 tmux attach -t <session-name>
 ```
 
-这样你就能直接看到正在运行的 Claude Code 会话，也可以临时手动回复。
-
-但这**不等于**正式把所有权从 OpenClaw 手里切走。它只是一次现场介入，不是路由关系变更。
-
-### 2. 正式把控制权从 OpenClaw 切回本地
-
-如果你想在终端里把会话明确切回本地控制，请执行：
-
-```bash
-bash runtime/control_session.sh reclaim [selector]
-```
-
-之后如果你又想在终端里把同一个会话正式交还给 OpenClaw：
-
-```bash
-bash runtime/control_session.sh takeover [selector]
-```
-
-实用记忆法就是：
-
-- `tmux attach` = 查看现场 / 临时人工介入
-- 直接对 OpenClaw 说“切回本地 / 继续接管” = 日常首选控制路径
-- `runtime/control_session.sh reclaim` = 本地兜底，正式把控制权切回本地
-- `runtime/control_session.sh takeover` = 本地兜底，正式把会话交还给 OpenClaw
-
-## 设计目标
-
-- 托管会话不要求用户先改全局 `~/.claude/settings.json`
-- 每个托管 Claude 会话对应独立的 OpenClaw session
-- 默认流程尽量简单
-- 实验能力必须显式 opt-in
-- 审批自动化保持保守
-
-## 当前运行时模型
-
-运行时分三层：
-
-1. Claude Code 真正执行任务。
-2. 本仓库负责 wrapper、session state、hooks 和路由。
-3. OpenClaw 负责策略、推进和接收 hook 唤醒。
-
-托管会话里最重要的字段包括：
-
-- `session_key`
-- `project_label`
-- `tmux_session`
-- `cwd`
-- `openclaw_session_id`
-- `permission_mode`
-- `permission_policy`
-- `agent_teams_enabled`
-
-## 当前能力
-
-### 托管会话
-
-- `hooks/start_claude.sh`：启动交互式托管会话
-- `hooks/run_claude.sh`：启动 print 模式托管执行
-- `runtime/start_local_claude.sh`：本地优先启动，后续可 handoff
-
-### 会话控制
-
-- `runtime/control_session.sh`：已有会话的统一控制入口，优先使用
-- `runtime/takeover.sh`：把托管会话交给 OpenClaw
-- `runtime/reclaim.sh`：把会话切回本地控制
-- `runtime/list_sessions.sh` / `runtime/session_status.sh`：查看会话状态
-
-### Hooks
-
-默认始终注入：
-
-- `Stop`
-- `Notification`
-- `PermissionRequest(Bash)`
-
-只有显式启用 Agent Teams 才注入：
-
-- `TeammateIdle`
-- `TaskCompleted`
-
-### Bash 审批链
-
-当前策略是故意保守的：
-
-- 明确安全的只读 / 校验型 Bash 可自动批准
-- 明显危险的 Bash 可自动拒绝
-- 其余请求继续走 Claude 默认审批流
-
-## 更简单的默认值
-
-- 单次任务优先 `run_claude.sh`
-- 常规可信仓库优先 `--permission-mode acceptEdits`
-- 只读分析优先 `--permission-mode plan`
-- `--dangerously-skip-permissions` 视为特殊模式，不作为默认建议
-- Agent Teams 默认关闭，只有显式传 `--agent-teams` 才开启
-
-## 快速开始
-
-理解这个项目最快的方式是：
-
-1. 把 skill 安装到 OpenClaw 能发现的位置。
-2. 直接让 OpenClaw 使用 `claude-code-agent` 执行任务。
-3. 让 OpenClaw 在 Claude hook 唤醒之间休眠等待。
-4. 优先让 OpenClaw 替你完成“切回本地 / 继续接管 / 列会话 / 停会话”；只有在你需要本地兜底时，才使用 `tmux attach` 或 `runtime/control_session.sh`。
-
-详细安装见 [INSTALL.md](INSTALL.md)。
-
-### OpenClaw 驱动的日常用法
-
-你平时对 OpenClaw 说的话，通常类似：
-
-```text
-用 claude-code-agent 分析 /path/to/project。
-用 claude-code-agent 修复 /path/to/project 里的 bug，跑完测试再汇报。
-用 claude-code-agent 审查 /path/to/project 当前改动。
-用 claude-code-agent 对 /path/to/project 做一次只读审计。
-用 claude-code-agent 把当前 Claude 会话切回本地控制。
-用 claude-code-agent 恢复 /path/to/project 的 Claude 会话托管。
-用 claude-code-agent 列出当前所有托管的 Claude 会话。
-```
-
-### 本地兜底：控制已有会话
+正式控制已有托管会话：
 
 ```bash
 bash runtime/control_session.sh list
 bash runtime/control_session.sh status
-bash runtime/control_session.sh reclaim
-bash runtime/control_session.sh takeover /path/to/project
-bash runtime/control_session.sh stop claude-demo
+bash runtime/control_session.sh reclaim [selector]
+bash runtime/control_session.sh takeover [selector]
+bash runtime/control_session.sh stop [selector]
 ```
 
-### 本地兜底：直接查看现场会话
+记忆方式很简单：
 
-```bash
-tmux attach -t claude-demo
-```
+- `tmux attach` = 看现场 / 临时插话
+- `reclaim` = 正式切回本地，后续通知停止，由你自己操作
+- `takeover` = 正式交还 OpenClaw，它会先读之前上下文和 `tmux` 现场再继续
 
-### 手工兜底：启动交互式托管会话
+## 为什么这个设计有价值
 
-```bash
-bash hooks/start_claude.sh claude-demo /path/to/project --permission-mode acceptEdits
-tmux attach -t claude-demo
-```
+没有这层运行时，OpenClaw 更像是在“临时调一次 Claude Code”。
 
-### 手工兜底：本地先跑，之后 handoff
+有了这层之后，OpenClaw 才更像是在“管理一个持续运行的项目执行会话”：
 
-```bash
-bash runtime/start_local_claude.sh /path/to/project --permission-mode acceptEdits
-bash runtime/control_session.sh takeover my-project
-bash runtime/control_session.sh reclaim my-project
-```
+- 会话不断
+- 现场可回读
+- 中途可接力
+- 人可以离开电脑
+- OpenClaw 不必常驻
+- 用户能持续知道任务状态
 
-### 手工兜底：一次性托管执行
+这才是这个 skill 的核心。
 
-```bash
-bash hooks/run_claude.sh /path/to/project -p --model sonnet "Analyze the repository and summarize the architecture."
-```
+## 官方参考
 
-### 显式启用 Agent Teams
-
-```bash
-bash hooks/start_claude.sh claude-team /path/to/project --permission-mode acceptEdits --agent-teams
-```
-
-## 安装说明摘要
-
-这个项目可以安装在：
-
-- `~/.openclaw/skills/claude-code-agent`，适合作为共享 skill
-- `~/.openclaw/workspace/skills/claude-code-agent`，适合作为 workspace 内副本
-
-wrappers 本身不依赖硬编码安装路径。
-
-如果你想给**非托管裸会话**额外挂全局 hooks，可把 [hooks/hooks_config.json](hooks/hooks_config.json) 当模板使用，并先把其中的 `__SKILL_DIR__` 替换成真实绝对路径。
-
-## 目录结构
-
-| 目录 | 内容 |
-|------|------|
-| `hooks/` | Claude hook 脚本与启动 wrapper |
-| `runtime/` | 会话存储、接管、状态查询等运行时脚本 |
-| `tests/` | 回归测试 |
-| `knowledge/` | Claude Code / OpenClaw 相关知识整理 |
-
-## 运行要求
-
-- OpenClaw 可用
-- Claude Code 已安装并完成认证
-- `tmux`
-- `jq`
-
-建议安装后先跑：
-
-```bash
-bash tests/regression.sh
-```
-
-## 当前状态
-
-- 最新 release tag：`v0.2.0`
-- 当前 `main` 分支包含面向“更简单默认值”的整理
-- 兼容基线：
-  - OpenClaw `2026.3.11+`
-  - Claude Code `2.1.80+`
-
-变更见 [CHANGELOG.md](CHANGELOG.md)。
-
-## 不做什么
-
-- 不尝试替代 Claude Code 本身
-- 不默认接管用户手工裸跑的 `claude`
-- 不偷偷修改所有全局 Claude 配置
-- 不对所有 Bash 请求做自动审批
-- 不默认给每个托管会话都打开 Agent Teams
-
-## 相关文档
-
-- [INSTALL.md](INSTALL.md)
-- [CHANGELOG.md](CHANGELOG.md)
-- [SKILL.md](SKILL.md)
-- [knowledge/](knowledge)
+- [OpenClaw Skills CLI 文档](https://docs.openclaw.ai/cli/skills)
+- [OpenClaw Skills 使用文档](https://docs.openclaw.ai/tools/skills)
+- [OpenClaw Onboarding CLI 文档](https://docs.openclaw.ai/cli/onboard)
+- [OpenClaw onboarding 概览](https://docs.openclaw.ai/start/onboarding-overview)

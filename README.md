@@ -2,315 +2,224 @@
 
 **English** | [中文](README_ZH.md)
 
-`claude-code-agent` is an OpenClaw skill that turns Claude Code into a managed runtime instead of an unattended terminal session.
+`claude-code-agent` is an OpenClaw skill for running Claude Code as a managed, resumable worker.
 
-It adds the control plane OpenClaw needs:
+This skill is not mainly about wrapping a Claude command. Its real value is that OpenClaw can treat Claude Code like a long-running project session: start it, leave it running in `tmux`, come back later, read progress, make decisions, and keep going.
 
-- wrapper-launched Claude sessions
-- per-session metadata and routing
-- hook-driven wakeups back into OpenClaw
-- local-to-OpenClaw handoff and reclaim
-- tmux visibility when a human needs to step in
+## Core Value
 
-## What This Project Is
+- OpenClaw can start a new Claude Code session or resume an existing one
+- the working session stays alive in `tmux`, so the live state is still there when you come back
+- runtime metadata keeps track of the same managed session
+- Claude hooks wake OpenClaw on `Notification`, `PermissionRequest`, `Stop`, and similar events
+- when OpenClaw takes over again, it can read recent `tmux` output first and continue the same session
+- you can leave the computer and still control the workflow remotely through OpenClaw
+- OpenClaw does not need to stay attached all the time; it behaves more like a project manager returning when events or messages require action
+- when you are at the keyboard, you can formally return the session to local control so OpenClaw stops receiving later notifications for that session
+- when you leave again, you can ask OpenClaw to take over and it will read the previous context and `tmux` scene before continuing
 
-This repository is for people who want OpenClaw to supervise Claude Code as a worker.
+## What This Skill Is
 
-It is **not** a replacement for Claude Code itself, and it does not try to manage arbitrary user-started `claude` sessions.
+- OpenClaw is the project manager
+- Claude Code is the executor
+- this repository is the session, routing, and wakeup layer between them
 
-## OpenClaw's Role
-
-In this skill, OpenClaw should behave more like a project manager than a simple relay.
-
-That means OpenClaw should:
-
-- understand the user's real goal and constraints
-- turn rough user language into a better Claude Code prompt
-- choose the right execution mode, model, and permission strategy
-- supervise progress through hook wakeups
-- verify the result before reporting back
-
-Claude Code is the execution expert. OpenClaw is the orchestrator.
-
-When a task gets harder, OpenClaw should prefer the smallest useful escalation first: upgrade reasoning before session shape, tools before brute force, and parallelism only when the task really benefits from it.
+This is not meant to be a terminal-first experience. The normal user entry point is OpenClaw conversation.
 
 ## How You Actually Use It
 
-For normal day-to-day use, you do **not** manually run the wrapper scripts first.
+### Start a task
 
-Your normal entry point is **OpenClaw conversation**, for example:
+Talk to OpenClaw:
 
-- "Use `claude-code-agent` to analyze `/path/to/project`."
-- "Use `claude-code-agent` to fix this bug in `/path/to/project`, run tests, then report back."
-- "Use `claude-code-agent` to review the current changes in `/path/to/project`."
-- "Use `claude-code-agent` to do a read-only audit of `/path/to/project`."
-- "Use `claude-code-agent` to hand the current Claude session back to local control."
-- "Use `claude-code-agent` to resume the Claude session for `/path/to/project`."
-- "Use `claude-code-agent` to list the current managed Claude sessions."
+```text
+Use claude-code-agent to analyze /path/to/project.
+Use claude-code-agent to fix a bug in /path/to/project, run tests, and report back.
+Use claude-code-agent to review the current changes in /path/to/project.
+Use claude-code-agent to do a read-only audit of /path/to/project.
+```
 
-OpenClaw should then choose this skill, launch or reuse a managed Claude Code session, and continue the task through hook wakeups.
+Expected flow:
 
-The simplifications in this repo are meant to reduce day-to-day friction, not cap OpenClaw's ceiling. When a task genuinely needs stronger orchestration, OpenClaw should still escalate models, effort, tools, or execution mode.
+1. OpenClaw selects this skill.
+2. OpenClaw starts or reuses a managed Claude Code session.
+3. Claude Code keeps working inside that same session.
+4. OpenClaw comes back when hooks or messages require attention.
 
-The shell scripts in this repo are mainly:
+### Come back in the middle
 
-- the skill's internal control plane
-- manual recovery and debugging tools
-- a direct fallback when you want to inspect or take over a live Claude session yourself
+You can return at any time and ask OpenClaw:
 
-## OpenClaw Sleep / Wake Model
+```text
+Use claude-code-agent to check progress for /path/to/project.
+Use claude-code-agent to continue the previous session.
+Use claude-code-agent to summarize the current state first.
+Use claude-code-agent to list the current managed Claude sessions.
+```
 
-Yes: OpenClaw is expected to "go idle" between steps and wait for Claude Code to wake it through hooks.
+The key point is not "start another Claude". The key point is "continue the same session".
 
-In the managed flow:
+Session state is stored in runtime metadata, and the live scene stays in `tmux`, so OpenClaw can read the scene and continue.
 
-1. OpenClaw launches or reuses a managed Claude Code session.
-2. Claude Code works inside that session.
-3. A hook event such as `Stop`, `Notification`, or `PermissionRequest` wakes OpenClaw.
-4. OpenClaw continues the same managed session instead of busy-waiting.
+### Leave the computer
 
-This means the intended runtime model is event-driven, not "OpenClaw constantly watching a terminal".
+This is one of the main reasons the skill exists.
 
-## Manual Takeover And Return
+Typical pattern:
 
-You can step in at any time, but the preferred path is still to ask OpenClaw in conversation.
+1. You ask OpenClaw to start work.
+2. Claude Code keeps running in `tmux`.
+3. You leave the computer.
+4. If Claude needs approval, input, or reports completion, OpenClaw receives the event.
+5. OpenClaw decides what to do next and keeps you informed.
 
-For example:
+OpenClaw does not need to sit in front of the terminal all the time. It is event-driven, like a project manager returning when needed.
 
-- "Use `claude-code-agent` to hand the current session back to me."
-- "Use `claude-code-agent` to resume the `/path/to/project` Claude session."
-- "Use `claude-code-agent` to stop the `claude-demo` session."
+### Work locally, then hand it back later
 
-OpenClaw should then run the control action for you through this skill.
+This is another key workflow:
 
-If you are already at the keyboard and want a local fallback, there are still two different levels of intervention.
+1. While you are at the computer, ask OpenClaw to return the session to local control.
+2. From that point on, you operate the session yourself in the terminal.
+3. Because ownership is local again, OpenClaw stops receiving later notifications for that session.
+4. When you leave the computer, message OpenClaw and ask it to take over again.
+5. OpenClaw will read the existing context, stored session state, and recent `tmux` output before continuing the same session.
 
-### 1. Inspect or talk to Claude directly
+So you can move back and forth between local hands-on control and remote OpenClaw supervision without throwing away the session.
 
-Attach to tmux:
+## How It Works
+
+The flow is simple:
+
+1. OpenClaw starts Claude Code through this skill.
+2. Claude Code runs inside `tmux`.
+3. Runtime state stores identifiers such as `session_key`, `cwd`, `openclaw_session_id`, and permission policy.
+4. Hooks wake OpenClaw on important events.
+5. OpenClaw reads session state and recent `tmux` output, then decides whether to continue, report, ask for confirmation, or hand control back.
+
+## Quick Start
+
+### 1. Prerequisites
+
+- OpenClaw installed
+- Claude Code installed and authenticated
+- `tmux`
+- `jq`
+
+### 2. Install the skill where OpenClaw can discover it
+
+Latest OpenClaw docs describe this discovery order:
+
+1. `<workspace>/skills`
+2. `~/.openclaw/skills`
+3. bundled OpenClaw skills
+
+Recommended install:
+
+Workspace-local:
+
+```bash
+git clone https://github.com/dztabel-happy/claude-code-agent.git ~/.openclaw/workspace/skills/claude-code-agent
+```
+
+Shared:
+
+```bash
+git clone https://github.com/dztabel-happy/claude-code-agent.git ~/.openclaw/skills/claude-code-agent
+```
+
+If your workspace is not `~/.openclaw/workspace`, use `<your-workspace>/skills/claude-code-agent`.
+
+### 3. Run OpenClaw onboarding if needed
+
+```bash
+openclaw onboard
+```
+
+Official docs describe this as the main onboarding flow for gateway, workspace, and skills.
+
+### 4. Start a new OpenClaw conversation and use the skill
+
+```text
+Use claude-code-agent to analyze /path/to/project.
+```
+
+That is the main path. Not manual wrapper-first usage.
+
+## How OpenClaw Installs This Skill
+
+Two things matter here.
+
+### Official OpenClaw direction
+
+The latest OpenClaw docs describe:
+
+- `openclaw onboard` as the recommended setup entrypoint
+- an OpenClaw skills discovery and install system
+- automatic discovery from workspace and shared skills directories
+
+### Most reliable path for this repository today
+
+For this GitHub repo, the most reliable path is still:
+
+1. clone or copy it into `<workspace>/skills/claude-code-agent` or `~/.openclaw/skills/claude-code-agent`
+2. start a new OpenClaw conversation
+3. ask OpenClaw to use `claude-code-agent`
+
+Do not assume OpenClaw can fetch this GitHub repository directly by skill name alone unless your current build and registry setup explicitly support that path.
+
+## When You Want To Step In Yourself
+
+Day to day, it is better to ask OpenClaw:
+
+```text
+Use claude-code-agent to hand the current session back to local control.
+Use claude-code-agent to resume the Claude session for /path/to/project.
+Use claude-code-agent to stop the claude-demo session.
+```
+
+If you are already at the keyboard, the local fallback tools are:
+
+Inspect a live session without changing ownership:
 
 ```bash
 tmux attach -t <session-name>
 ```
 
-This lets you watch the live Claude Code session and reply manually.
-
-However, this does **not** formally transfer ownership away from OpenClaw. It is a live intervention, not a routing change.
-
-### 2. Formally take control back from OpenClaw
-
-If you want the session to stop being OpenClaw-managed and become locally controlled from the terminal, run:
-
-```bash
-bash runtime/control_session.sh reclaim [selector]
-```
-
-Later, when you want OpenClaw to resume control from the terminal:
-
-```bash
-bash runtime/control_session.sh takeover [selector]
-```
-
-So the practical rule is:
-
-- `tmux attach` = inspect or intervene live
-- asking OpenClaw to reclaim/take over = preferred day-to-day control path
-- `runtime/control_session.sh reclaim` = local fallback to formally switch ownership back to local control
-- `runtime/control_session.sh takeover` = local fallback to formally hand the session back to OpenClaw
-
-## Design Goals
-
-- Managed sessions should not require editing global `~/.claude/settings.json`
-- Each managed Claude session should map to its own OpenClaw session ID
-- Default workflows should stay simple
-- Experimental features should be explicit opt-ins
-- Permission automation should stay conservative
-
-## Current Runtime Model
-
-There are three layers:
-
-1. Claude Code executes the actual work.
-2. This repo provides wrappers, session state, hooks, and routing.
-3. OpenClaw decides strategy and reacts to hook wakeups.
-
-The important managed-session fields are:
-
-- `session_key`
-- `project_label`
-- `tmux_session`
-- `cwd`
-- `openclaw_session_id`
-- `permission_mode`
-- `permission_policy`
-- `agent_teams_enabled`
-
-## Key Features
-
-### Managed sessions
-
-- `hooks/start_claude.sh` starts an interactive managed session in `tmux`
-- `hooks/run_claude.sh` runs a managed print-mode invocation
-- `runtime/start_local_claude.sh` starts a session under local control first
-
-### Session control
-
-- `runtime/control_session.sh` is the preferred unified control entrypoint for existing sessions
-- `runtime/takeover.sh` hands a managed session to OpenClaw
-- `runtime/reclaim.sh` returns control to the local operator
-- `runtime/list_sessions.sh` and `runtime/session_status.sh` expose runtime state
-
-### Hook integration
-
-Always-on managed hooks:
-
-- `Stop`
-- `Notification`
-- `PermissionRequest(Bash)`
-
-Opt-in hooks when Agent Teams is enabled:
-
-- `TeammateIdle`
-- `TaskCompleted`
-
-### Approval chain
-
-The current approval layer is intentionally narrow:
-
-- clearly safe read-only or verification-style Bash commands can be auto-allowed
-- clearly dangerous Bash commands can be auto-denied
-- everything else falls back to Claude's normal permission flow
-
-## Simpler Defaults
-
-- Prefer `run_claude.sh` for one-shot tasks
-- Prefer `--permission-mode acceptEdits` for normal trusted repos
-- Prefer `--permission-mode plan` for read-only analysis
-- Treat `--dangerously-skip-permissions` as a special-case escape hatch
-- Keep Agent Teams off unless you explicitly pass `--agent-teams`
-
-## Quick Start
-
-The quickest way to understand this project is:
-
-1. Install the skill where OpenClaw can discover it.
-2. Ask OpenClaw to use `claude-code-agent` for a task.
-3. Let OpenClaw sleep between Claude hook wakeups.
-4. Ask OpenClaw to reclaim, resume, list, or stop sessions for you; use `tmux attach` or `runtime/control_session.sh` only as local fallback.
-
-See [INSTALL.md](INSTALL.md) for setup details.
-
-### OpenClaw-driven daily usage
-
-Typical daily prompts to OpenClaw:
-
-```text
-Use claude-code-agent to analyze /path/to/project.
-Use claude-code-agent to fix a bug in /path/to/project and run tests before reporting back.
-Use claude-code-agent to review the current changes in /path/to/project.
-Use claude-code-agent to do a read-only audit of /path/to/project.
-Use claude-code-agent to hand the current Claude session back to local control.
-Use claude-code-agent to resume the Claude session for /path/to/project.
-Use claude-code-agent to list the current managed Claude sessions.
-```
-
-### Local fallback: control an existing session
+Formally control an existing managed session:
 
 ```bash
 bash runtime/control_session.sh list
 bash runtime/control_session.sh status
-bash runtime/control_session.sh reclaim
-bash runtime/control_session.sh takeover /path/to/project
-bash runtime/control_session.sh stop claude-demo
+bash runtime/control_session.sh reclaim [selector]
+bash runtime/control_session.sh takeover [selector]
+bash runtime/control_session.sh stop [selector]
 ```
 
-### Local fallback: inspect a live session directly
+Simple rule:
 
-```bash
-tmux attach -t claude-demo
-```
+- `tmux attach` = inspect or temporarily intervene
+- `reclaim` = formally switch back to local control, and later notifications stop going to OpenClaw
+- `takeover` = formally hand the session back to OpenClaw, which reads prior context and recent `tmux` output before continuing
 
-### Manual fallback: start a managed interactive session
+## Why This Design Matters
 
-```bash
-bash hooks/start_claude.sh claude-demo /path/to/project --permission-mode acceptEdits
-tmux attach -t claude-demo
-```
+Without this layer, OpenClaw is closer to "calling Claude Code once".
 
-### Manual fallback: start local-first, hand off later
+With this layer, OpenClaw can manage a real project session:
 
-```bash
-bash runtime/start_local_claude.sh /path/to/project --permission-mode acceptEdits
-bash runtime/control_session.sh takeover my-project
-bash runtime/control_session.sh reclaim my-project
-```
+- the session survives
+- the live scene is readable
+- work can be resumed
+- the user can leave the computer
+- OpenClaw does not need to stay resident in the foreground
+- the user can stay informed while OpenClaw keeps managing execution
 
-### Manual fallback: run a one-shot managed job
+That is the real core of this skill.
 
-```bash
-bash hooks/run_claude.sh /path/to/project -p --model sonnet "Analyze the repository and summarize the architecture."
-```
+## Official References
 
-### Enable Agent Teams explicitly
-
-```bash
-bash hooks/start_claude.sh claude-team /path/to/project --permission-mode acceptEdits --agent-teams
-```
-
-## Installation Notes
-
-This project can live in either:
-
-- `~/.openclaw/skills/claude-code-agent` for a managed shared skill
-- `~/.openclaw/workspace/skills/claude-code-agent` for a workspace-local clone
-
-The wrappers do not depend on a hard-coded install path.
-
-If you want optional global Claude hooks for unmanaged sessions, use [hooks/hooks_config.json](hooks/hooks_config.json) as a template and replace `__SKILL_DIR__` with the real absolute path first.
-
-## Repository Layout
-
-| Path | Purpose |
-|------|---------|
-| `hooks/` | Claude hook handlers and launch wrappers |
-| `runtime/` | session store, handoff, reclaim, and inspection scripts |
-| `tests/` | regression coverage |
-| `knowledge/` | reference notes used to maintain the skill |
-
-## Requirements
-
-- OpenClaw
-- Claude Code with working auth
-- `tmux`
-- `jq`
-
-After installation, the first check should usually be:
-
-```bash
-bash tests/regression.sh
-```
-
-## Status
-
-- Latest release tag: `v0.2.0`
-- `main` currently contains post-release simplification work
-- Compatibility baseline:
-  - OpenClaw `2026.3.11+`
-  - Claude Code `2.1.80+`
-
-For release history, see [CHANGELOG.md](CHANGELOG.md).
-
-## Non-Goals
-
-- replacing Claude Code itself
-- silently mutating every user's global Claude config
-- auto-approving all shell access
-- enabling experimental team features for every managed session by default
-
-## Documentation
-
-- [INSTALL.md](INSTALL.md)
-- [CHANGELOG.md](CHANGELOG.md)
-- [SKILL.md](SKILL.md)
-- [README_ZH.md](README_ZH.md)
-- [knowledge/](knowledge)
+- [OpenClaw Skills CLI docs](https://docs.openclaw.ai/cli/skills)
+- [OpenClaw Skills guide](https://docs.openclaw.ai/tools/skills)
+- [OpenClaw Onboarding CLI docs](https://docs.openclaw.ai/cli/onboard)
+- [OpenClaw onboarding overview](https://docs.openclaw.ai/start/onboarding-overview)
